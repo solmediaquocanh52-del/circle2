@@ -1,0 +1,44 @@
+name: Build CircleSwitcher (.deb)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iOS Rootless DEB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot git perl clang lld llvm make curl xz-utils lzma zip unzip dpkg-dev
+
+      - name: Install Theos & iOS SDK
+        run: |
+          export THEOS=~/theos
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)" < /dev/null
+          if [ -z "$(ls -A $THEOS/sdks 2>/dev/null)" ]; then
+            git clone --depth=1 https://github.com/theos/sdks.git /tmp/theos-sdks
+            cp -r /tmp/theos-sdks/*.sdk $THEOS/sdks/
+          fi
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+
+      - name: Build Rootless Package (.deb)
+        run: |
+          make clean
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+
+      - name: Upload DEB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CircleSwitcher-Rootless-DEB
+          path: packages/*.deb
+          if-no-files-found: error
