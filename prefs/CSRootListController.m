@@ -1,0 +1,286 @@
+#import "CSRootListController.h"
+#import <QuartzCore/QuartzCore.h>
+#import "../CSRingV2.h"
+
+#define CS_DOMAIN CFSTR("com.vn.circleswitcher")
+#define CS_TEST_NOTE CFSTR("com.vn.circleswitcher/test")
+#define CS_RESPRING_NOTE CFSTR("com.vn.circleswitcher/respring")
+#define CS_RELOAD_NOTE CFSTR("com.vn.circleswitcher/reload")
+
+static double csPrefD(CFStringRef key, double def) {
+    CFPropertyListRef v = CFPreferencesCopyAppValue(key, CS_DOMAIN);
+    if (!v) return def;
+    double r = def;
+    if (CFGetTypeID(v) == CFNumberGetTypeID()) CFNumberGetValue(v, kCFNumberDoubleType, &r);
+    CFRelease(v);
+    return r;
+}
+
+static BOOL csPrefB(CFStringRef key, BOOL def) {
+    CFPropertyListRef v = CFPreferencesCopyAppValue(key, CS_DOMAIN);
+    if (!v) return def;
+    BOOL r = def;
+    if (CFGetTypeID(v) == CFBooleanGetTypeID()) r = CFBooleanGetValue(v);
+    else if (CFGetTypeID(v) == CFNumberGetTypeID()) { int n = 0; CFNumberGetValue(v, kCFNumberIntType, &n); r = (n != 0); }
+    CFRelease(v);
+    return r;
+}
+
+static double csNormDeg(double a) {
+    a = fmod(a + 180.0, 360.0);
+    if (a < 0) a += 360.0;
+    return a - 180.0;
+}
+
+@interface CSPreviewView : UIView
+@property (nonatomic, strong) CAShapeLayer *glowRing;
+@property (nonatomic, strong) UIView *centerBubble;
+@property (nonatomic, strong) NSMutableArray<UIView *> *cards;
+@property (nonatomic, assign) double rot;
+- (void)reloadPreview;
+@end
+
+@implementation CSPreviewView
+
+- (instancetype)initWithFrame:(CGRect)f {
+    if ((self = [super initWithFrame:f])) {
+        self.backgroundColor = [UIColor colorWithRed:0.08 green:0.09 blue:0.13 alpha:1.0];
+        self.layer.cornerRadius = 18;
+        self.clipsToBounds = YES;
+
+        _glowRing = [CAShapeLayer layer];
+        _glowRing.fillColor = nil;
+        _glowRing.lineWidth = 3.5;
+        [self.layer addSublayer:_glowRing];
+
+        _centerBubble = [UIView new];
+        _centerBubble.backgroundColor = [UIColor colorWithRed:0.15 green:0.28 blue:0.65 alpha:0.55];
+        _centerBubble.layer.borderWidth = 1.2;
+        _centerBubble.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.5].CGColor;
+        [self addSubview:_centerBubble];
+
+        _cards = [NSMutableArray array];
+        UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(12, f.size.height - 24, f.size.width - 24, 18)];
+        hint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
+        hint.text = @"Vuốt trái / phải để xem trước vòng 3D vô tận";
+        hint.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+        hint.textColor = [UIColor colorWithWhite:1 alpha:0.55];
+        hint.textAlignment = NSTextAlignmentCenter;
+        [self addSubview:hint];
+
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onPan:)];
+        [self addGestureRecognizer:pan];
+        [self reloadPreview];
+    }
+    return self;
+}
+
+- (void)onPan:(UIPanGestureRecognizer *)g {
+    CGPoint t = [g translationInView:self];
+    [g setTranslation:CGPointZero inView:self];
+    int count = (int)lround(csPrefD(CFSTR("count"), 8));
+    if (count < 3) count = 3;
+    double step = 360.0 / count;
+    self.rot -= t.x * (step / 90.0);
+    [self reloadPreview];
+}
+
+- (void)reloadPreview {
+    CFPreferencesAppSynchronize(CS_DOMAIN);
+    CSRingCfg cfg;
+    cfg.radius = csPrefD(CFSTR("radius"), 120) * 0.62;
+    cfg.tilt = csPrefD(CFSTR("tilt"), 35);
+    cfg.cam = csPrefD(CFSTR("cam"), 22);
+    cfg.size = csPrefD(CFSTR("size"), 100) * 0.62;
+    cfg.off = csPrefD(CFSTR("off"), 0) * 0.5;
+    cfg.count = (int)lround(csPrefD(CFSTR("count"), 8));
+    if (cfg.count < 3) cfg.count = 3;
+    if (cfg.count > 12) cfg.count = 12;
+    cfg.style = (int)csPrefD(CFSTR("style"), 1);
+    cfg.iconSize = csPrefD(CFSTR("iconSize"), 100);
+    cfg.centerSize = csPrefD(CFSTR("centerSize"), 100);
+    cfg.gap = csPrefD(CFSTR("gap"), 100);
+
+    BOOL ringGlow = csPrefB(CFSTR("ringGlow"), YES);
+    double glowHue = csPrefD(CFSTR("glowHue"), 225);
+    double glowAmt = csPrefD(CFSTR("glowAmt"), 70);
+    double cardCorner = csPrefD(CFSTR("cardCorner"), 28);
+
+    while ((int)self.cards.count < cfg.count) {
+        UIView *v = [UIView new];
+        v.layer.borderWidth = 1.2;
+        [self addSubview:v];
+        [self.cards addObject:v];
+    }
+    while ((int)self.cards.count > cfg.count) {
+        [self.cards.lastObject removeFromSuperview];
+        [self.cards removeLastObject];
+    }
+
+    CGFloat W = self.bounds.size.width > 10 ? self.bounds.size.width : 350;
+    CGFloat H = self.bounds.size.height > 10 ? self.bounds.size.height : 210;
+    CGFloat cx = W / 2.0, cy = H * 0.48;
+    double step = 360.0 / cfg.count;
+    BOOL circ = (cfg.style <= 1);
+
+    if (circ && ringGlow) {
+        double gx, gy, rx, ry;
+        CSRingGlowRect(cfg, &gx, &gy, &rx, &ry);
+        UIColor *g = [UIColor colorWithHue:fmod(glowHue, 360.0) / 360.0 saturation:0.65 brightness:1 alpha:1];
+        self.glowRing.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(cx + gx - rx, cy + gy - ry, rx * 2, ry * 2)].CGPath;
+        self.glowRing.strokeColor = [g colorWithAlphaComponent:0.8].CGColor;
+        self.glowRing.shadowColor = g.CGColor;
+        self.glowRing.shadowOpacity = 0.85;
+        self.glowRing.shadowRadius = 8;
+        self.glowRing.hidden = NO;
+    } else {
+        self.glowRing.hidden = YES;
+    }
+
+    self.centerBubble.hidden = (cfg.style != 0);
+    if (cfg.style == 0) {
+        double bd = 118.0 * cfg.centerSize / 100.0 * cfg.size / 100.0;
+        self.centerBubble.bounds = CGRectMake(0, 0, bd, bd);
+        self.centerBubble.center = CGPointMake(cx, cy + cfg.off);
+        self.centerBubble.layer.cornerRadius = bd / 2.0;
+    }
+
+    NSArray *palette = @[
+        [UIColor systemBlueColor], [UIColor systemIndigoColor], [UIColor systemPinkColor],
+        [UIColor systemTealColor], [UIColor systemOrangeColor], [UIColor systemPurpleColor],
+        [UIColor systemGreenColor], [UIColor systemRedColor]
+    ];
+
+    NSMutableArray *order = [NSMutableArray array];
+    for (int i = 0; i < cfg.count; i++) {
+        UIView *card = self.cards[i];
+        card.backgroundColor = palette[i % palette.count];
+        double phi = csNormDeg(i * step - self.rot);
+        CSPose p = circ ? CSRingPoseCircle(phi, step, cfg, W) : (cfg.style == 3 ? CSRingPoseStrip(phi, step, cfg) : CSRingPose(phi, cfg));
+
+        if (circ) {
+            card.bounds = CGRectMake(0, 0, 100, 100);
+            card.layer.cornerRadius = 50;
+            double f = p.dia / 100.0;
+            card.center = CGPointMake(cx + p.x, cy + p.y);
+            CATransform3D t = CATransform3DIdentity;
+            t.m34 = -1.0 / p.perspective;
+            t = CATransform3DRotate(t, p.yaw, 0, 1, 0);
+            t = CATransform3DScale(t, f, f, 1);
+            card.layer.transform = t;
+        } else {
+            CGFloat cw = 72 * cfg.size / 100.0, ch = 122 * cfg.size / 100.0;
+            card.bounds = CGRectMake(0, 0, cw, ch);
+            card.layer.cornerRadius = (cfg.style == 3) ? cardCorner * 0.6 : 12;
+            card.center = CGPointMake(cx + p.x, cy + p.y);
+            CATransform3D t = CATransform3DIdentity;
+            t.m34 = -1.0 / p.perspective;
+            t = CATransform3DRotate(t, p.yaw, 0, 1, 0);
+            if (cfg.style == 3) {
+                double kk = CSClamp(1.0 - fabs(phi) / MAX(step, 1.0), 0, 1);
+                double ks = kk * kk * (3.0 - 2.0 * kk);
+                double fsc = 0.80 + 0.30 * ks;
+                t = CATransform3DScale(t, fsc, fsc, 1);
+            }
+            card.layer.transform = t;
+        }
+
+        UIColor *g = [UIColor colorWithHue:fmod(glowHue, 360.0) / 360.0 saturation:0.55 brightness:1 alpha:1];
+        card.layer.borderColor = (cfg.style == 3 ? g : [UIColor colorWithWhite:1 alpha:0.6]).CGColor;
+        if (ringGlow && (circ || cfg.style == 3)) {
+            card.layer.shadowColor = g.CGColor;
+            card.layer.shadowOffset = CGSizeZero;
+            card.layer.shadowRadius = 8;
+            card.layer.shadowOpacity = (float)((0.3 + 0.6 * p.k) * (cfg.style == 3 ? glowAmt / 100.0 : 1.0));
+        } else {
+            card.layer.shadowOpacity = 0;
+        }
+        card.alpha = p.opacity;
+        card.layer.zPosition = p.z + p.k * 5;
+        [order addObject:card];
+    }
+    [order sortUsingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+        return a.layer.zPosition < b.layer.zPosition ? NSOrderedAscending : NSOrderedDescending;
+    }];
+    for (UIView *c in order) [self bringSubviewToFront:c];
+}
+@end
+
+@implementation CSRootListController {
+    CSPreviewView *_preview;
+}
+
+- (NSArray *)specifiers {
+    if (!_specifiers) {
+        _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+    }
+    return _specifiers;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Respring"
+                                                                              style:UIBarButtonItemStyleDone
+                                                                             target:self
+                                                                             action:@selector(respringAction)];
+    UIView *headerWrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 224)];
+    _preview = [[CSPreviewView alloc] initWithFrame:CGRectMake(16, 10, self.view.bounds.size.width - 32, 204)];
+    _preview.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [headerWrap addSubview:_preview];
+    self.tableView.tableHeaderView = headerWrap;
+}
+
+- (id)readPreferenceValue:(PSSpecifier *)specifier {
+    NSString *key = [specifier propertyForKey:@"key"];
+    id defaultVal = [specifier propertyForKey:@"default"];
+    if (!key) return defaultVal;
+    CFPropertyListRef v = CFPreferencesCopyAppValue((__bridge CFStringRef)key, CS_DOMAIN);
+    if (!v) return defaultVal;
+    return (__bridge_transfer id)v;
+}
+
+- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+    NSString *key = [specifier propertyForKey:@"key"];
+    if (!key) return;
+    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, CS_DOMAIN);
+    CFPreferencesAppSynchronize(CS_DOMAIN);
+    [_preview reloadPreview];
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CS_RELOAD_NOTE, NULL, NULL, YES);
+}
+
+- (void)testOverlayAction {
+    CFPreferencesSetAppValue(CFSTR("testShow"), kCFBooleanTrue, CS_DOMAIN);
+    CFPreferencesAppSynchronize(CS_DOMAIN);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CS_TEST_NOTE, NULL, NULL, YES);
+}
+
+- (void)resetDefaultsAction {
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"Đặt lại mặc định?"
+                                                                message:@"Khôi phục toàn bộ thông số 3D về giá trị gốc."
+                                                         preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Hủy" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Đặt lại" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+        NSArray *keys = @[
+            @"enabled", @"mode", @"style", @"count", @"radius", @"tilt", @"cam", @"size",
+            @"iconSize", @"centerSize", @"gap", @"off", @"cardCorner", @"snapCircle",
+            @"ringGlow", @"glowHue", @"glowAmt", @"blur", @"moveBlur", @"dim", @"bgBlur",
+            @"namePos", @"nameIcon", @"namePill", @"icon", @"onlyFront", @"ram",
+            @"dots", @"chevron", @"inertia", @"haptic", @"openAnim", @"openSpeed",
+            @"bubOn", @"bubSize", @"keepPinned", @"debug"
+        ];
+        for (NSString *k in keys) {
+            CFPreferencesSetAppValue((__bridge CFStringRef)k, NULL, CS_DOMAIN);
+        }
+        CFPreferencesAppSynchronize(CS_DOMAIN);
+        [self reloadSpecifiers];
+        [_preview reloadPreview];
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CS_RELOAD_NOTE, NULL, NULL, YES);
+    }]];
+    [self presentViewController:ac animated:YES completion:nil];
+}
+
+- (void)respringAction {
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CS_RESPRING_NOTE, NULL, NULL, YES);
+}
+
+@end

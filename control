@@ -1,0 +1,9 @@
+Package: com.vn.circleswitcher
+Name: CircleSwitcher
+Version: 1.2.0
+Architecture: iphoneos-arm64
+Description: Chuyen app dang vong tron 3D cuon vo tan 2 chieu (ho tro iOS 14 - 16 Rootless)
+Maintainer: you
+Author: you
+Section: Tweaks
+Depends: mobilesubstrate, preferenceloader, firmware (>= 14.0)
