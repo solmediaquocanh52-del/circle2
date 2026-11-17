@@ -8,9 +8,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Chế độ 0: Biến đổi trực tiếp App Switcher thật (iOS 14 - 16.3.1), cuộn vô tận 2 chiều trái &amp; phải. Chế độ 2: Lớp phủ 3D độc lập kèm Bong bóng nổi &amp; Dọn RAM.</string>
+			<string>Motion Blur động: Tự động làm mờ mượt mà khi vuốt thu nhỏ app vào vòng tròn hoặc xoay nhanh, dừng lại lập tức sắc nét @3x.</string>
 			<key>label</key>
-			<string>Chung &amp; Chế độ</string>
+			<string>Chung &amp; Độ mượt hiển thị</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -23,6 +23,58 @@
 			<string>enabled</string>
 			<key>label</key>
 			<string>Bật CircleSwitcher</string>
+			<key>sfColor</key>
+			<string>#34C759</string>
+			<key>sfSymbol</key>
+			<string>power</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>snapCircle</string>
+			<key>label</key>
+			<string>Biến thẻ thành hình tròn (Morph)</string>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>circle.circle.fill</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>motionBlurOn</string>
+			<key>label</key>
+			<string>Motion Blur khi vuốt &amp; xoay</string>
+			<key>sfColor</key>
+			<string>#32ADE6</string>
+			<key>sfSymbol</key>
+			<string>wind</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>crispText</string>
+			<key>label</key>
+			<string>Siêu nét chữ @3x (Khử mờ)</string>
+			<key>sfColor</key>
+			<string>#5856D6</string>
+			<key>sfSymbol</key>
+			<string>textformat.size</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -34,7 +86,11 @@
 			<key>key</key>
 			<string>mode</string>
 			<key>label</key>
-			<string>Chế độ</string>
+			<string>Chế độ hoạt động</string>
+			<key>sfColor</key>
+			<string>#AF52DE</string>
+			<key>sfSymbol</key>
+			<string>square.stack.3d.up.fill</string>
 			<key>validTitles</key>
 			<array>
 				<string>Switcher thật</string>
@@ -57,6 +113,10 @@
 			<string>PSButtonCell</string>
 			<key>label</key>
 			<string>Xem thử giao diện (Test Overlay)</string>
+			<key>sfColor</key>
+			<string>#00C7BE</string>
+			<key>sfSymbol</key>
+			<string>eye.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -75,10 +135,14 @@
 			<string>style</string>
 			<key>label</key>
 			<string>Kiểu vòng</string>
+			<key>sfColor</key>
+			<string>#AF52DE</string>
+			<key>sfSymbol</key>
+			<string>circle.hexagongrid.fill</string>
 			<key>validTitles</key>
 			<array>
 				<string>Phẳng</string>
-				<string>Vòng 3D</string>
+				<string>Vòng tròn</string>
 				<string>Thẻ</string>
 				<string>Neon</string>
 			</array>
@@ -105,6 +169,10 @@
 			<integer>12</integer>
 			<key>min</key>
 			<integer>3</integer>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>square.grid.2x2.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -112,7 +180,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<integer>120</integer>
+			<integer>125</integer>
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
@@ -123,6 +191,10 @@
 			<integer>220</integer>
 			<key>min</key>
 			<integer>60</integer>
+			<key>sfColor</key>
+			<string>#FF9500</string>
+			<key>sfSymbol</key>
+			<string>arrow.up.left.and.arrow.down.right</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -130,7 +202,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<integer>35</integer>
+			<integer>32</integer>
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
@@ -141,6 +213,10 @@
 			<integer>75</integer>
 			<key>min</key>
 			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#FF2D55</string>
+			<key>sfSymbol</key>
+			<string>rotate.3d</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -159,6 +235,10 @@
 			<integer>60</integer>
 			<key>min</key>
 			<integer>-30</integer>
+			<key>sfColor</key>
+			<string>#5AC8FA</string>
+			<key>sfSymbol</key>
+			<string>camera.viewfinder</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -177,24 +257,10 @@
 			<integer>160</integer>
 			<key>min</key>
 			<integer>50</integer>
-			<key>showValue</key>
-			<true/>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>default</key>
-			<integer>100</integer>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>iconSize</string>
-			<key>label</key>
-			<string>Kích thước icon phụ (%)</string>
-			<key>max</key>
-			<integer>160</integer>
-			<key>min</key>
-			<integer>50</integer>
+			<key>sfColor</key>
+			<string>#34C759</string>
+			<key>sfSymbol</key>
+			<string>aspectratio.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -213,6 +279,32 @@
 			<integer>160</integer>
 			<key>min</key>
 			<integer>50</integer>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>viewfinder.circle.fill</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>100</integer>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>iconSize</string>
+			<key>label</key>
+			<string>Kích thước app phụ (%)</string>
+			<key>max</key>
+			<integer>160</integer>
+			<key>min</key>
+			<integer>50</integer>
+			<key>sfColor</key>
+			<string>#5856D6</string>
+			<key>sfSymbol</key>
+			<string>app.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -231,6 +323,10 @@
 			<integer>160</integer>
 			<key>min</key>
 			<integer>40</integer>
+			<key>sfColor</key>
+			<string>#FF9500</string>
+			<key>sfSymbol</key>
+			<string>arrow.left.and.right</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -249,6 +345,10 @@
 			<integer>150</integer>
 			<key>min</key>
 			<integer>-150</integer>
+			<key>sfColor</key>
+			<string>#8E8E93</string>
+			<key>sfSymbol</key>
+			<string>arrow.up.and.down</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -267,26 +367,62 @@
 			<integer>50</integer>
 			<key>min</key>
 			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#AF52DE</string>
+			<key>sfSymbol</key>
+			<string>rectangle.roundedtop.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
 		<dict>
 			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>snapCircle</string>
+			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Bo tròn thẻ thật (Mode 0)</string>
+			<string>Hiệu ứng Motion Blur &amp; Phát sáng</string>
 		</dict>
 		<dict>
 			<key>cell</key>
-			<string>PSGroupCell</string>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<real>4.5</real>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>moveBlur</string>
 			<key>label</key>
-			<string>Hiệu ứng Phát sáng &amp; Làm mờ</string>
+			<string>Cường độ Motion Blur</string>
+			<key>max</key>
+			<integer>10</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#32ADE6</string>
+			<key>sfSymbol</key>
+			<string>motion.badge.plus</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<real>1.5</real>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>blur</string>
+			<key>label</key>
+			<string>Làm mờ app ở xa</string>
+			<key>max</key>
+			<integer>12</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#5AC8FA</string>
+			<key>sfSymbol</key>
+			<string>drop.fill</string>
+			<key>showValue</key>
+			<true/>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -298,13 +434,17 @@
 			<key>key</key>
 			<string>ringGlow</string>
 			<key>label</key>
-			<string>Vòng phát sáng (Glow)</string>
+			<string>Viền vòng phát sáng (Glow)</string>
+			<key>sfColor</key>
+			<string>#FFCC00</string>
+			<key>sfSymbol</key>
+			<string>sparkles</string>
 		</dict>
 		<dict>
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<integer>225</integer>
+			<integer>215</integer>
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
@@ -315,6 +455,10 @@
 			<integer>360</integer>
 			<key>min</key>
 			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#FF2D55</string>
+			<key>sfSymbol</key>
+			<string>paintpalette.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -322,7 +466,7 @@
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<integer>70</integer>
+			<integer>75</integer>
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
@@ -333,42 +477,10 @@
 			<integer>100</integer>
 			<key>min</key>
 			<integer>0</integer>
-			<key>showValue</key>
-			<true/>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>default</key>
-			<integer>2</integer>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>blur</string>
-			<key>label</key>
-			<string>Làm mờ thẻ ở xa</string>
-			<key>max</key>
-			<integer>15</integer>
-			<key>min</key>
-			<integer>0</integer>
-			<key>showValue</key>
-			<true/>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>default</key>
-			<integer>3</integer>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>moveBlur</string>
-			<key>label</key>
-			<string>Làm mờ chuyển động</string>
-			<key>max</key>
-			<integer>15</integer>
-			<key>min</key>
-			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#FF9500</string>
+			<key>sfSymbol</key>
+			<string>sun.max.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -382,11 +494,15 @@
 			<key>key</key>
 			<string>dim</string>
 			<key>label</key>
-			<string>Độ tối nền (%)</string>
+			<string>Độ tối nền (Mode 2)</string>
 			<key>max</key>
 			<integer>90</integer>
 			<key>min</key>
 			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#5856D6</string>
+			<key>sfSymbol</key>
+			<string>moon.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -400,11 +516,15 @@
 			<key>key</key>
 			<string>bgBlur</string>
 			<key>label</key>
-			<string>Độ mờ nền (Blur)</string>
+			<string>Độ mờ nền (Mode 2)</string>
 			<key>max</key>
 			<integer>10</integer>
 			<key>min</key>
 			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#8E8E93</string>
+			<key>sfSymbol</key>
+			<string>aqi.medium</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -418,13 +538,17 @@
 			<key>cell</key>
 			<string>PSSegmentCell</string>
 			<key>default</key>
-			<integer>0</integer>
+			<integer>2</integer>
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
 			<string>namePos</string>
 			<key>label</key>
 			<string>Vị trí tên app</string>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>tag.fill</string>
 			<key>validTitles</key>
 			<array>
 				<string>Trên</string>
@@ -448,9 +572,29 @@
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
+			<string>namePill</string>
+			<key>label</key>
+			<string>Nền viên thuốc cho tên</string>
+			<key>sfColor</key>
+			<string>#5856D6</string>
+			<key>sfSymbol</key>
+			<string>capsule.fill</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
 			<string>icon</string>
 			<key>label</key>
-			<string>Hiển thị icon app</string>
+			<string>Hiển thị icon app (Mode 2)</string>
+			<key>sfColor</key>
+			<string>#34C759</string>
+			<key>sfSymbol</key>
+			<string>app.badge.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -462,19 +606,11 @@
 			<key>key</key>
 			<string>nameIcon</string>
 			<key>label</key>
-			<string>Icon nhỏ cạnh tên</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<false/>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>namePill</string>
-			<key>label</key>
-			<string>Nền viên thuốc cho tên</string>
+			<string>Icon nhỏ cạnh tên (Mode 2)</string>
+			<key>sfColor</key>
+			<string>#5AC8FA</string>
+			<key>sfSymbol</key>
+			<string>photo.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -486,7 +622,11 @@
 			<key>key</key>
 			<string>onlyFront</string>
 			<key>label</key>
-			<string>Chỉ hiện tên app giữa (Style 2/3)</string>
+			<string>Chỉ hiện tên app giữa</string>
+			<key>sfColor</key>
+			<string>#8E8E93</string>
+			<key>sfSymbol</key>
+			<string>text.aligncenter</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -499,6 +639,10 @@
 			<string>ram</string>
 			<key>label</key>
 			<string>Hiển thị RAM từng app</string>
+			<key>sfColor</key>
+			<string>#FF9500</string>
+			<key>sfSymbol</key>
+			<string>memorychip.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -511,6 +655,10 @@
 			<string>dots</string>
 			<key>label</key>
 			<string>Chấm chỉ báo (Dots)</string>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>ellipsis</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -523,6 +671,10 @@
 			<string>chevron</string>
 			<key>label</key>
 			<string>Mũi tên chỉ hướng (Style 0)</string>
+			<key>sfColor</key>
+			<string>#32ADE6</string>
+			<key>sfSymbol</key>
+			<string>chevron.up.circle.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -541,6 +693,10 @@
 			<string>inertia</string>
 			<key>label</key>
 			<string>Quán tính khi vuốt xoay</string>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>hand.draw.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -553,6 +709,10 @@
 			<string>haptic</string>
 			<key>label</key>
 			<string>Rung phản hồi (Haptic)</string>
+			<key>sfColor</key>
+			<string>#FF2D55</string>
+			<key>sfSymbol</key>
+			<string>iphone.radiowaves.left.and.right</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -565,6 +725,10 @@
 			<string>openAnim</string>
 			<key>label</key>
 			<string>Hiệu ứng bung vòng khi mở</string>
+			<key>sfColor</key>
+			<string>#AF52DE</string>
+			<key>sfSymbol</key>
+			<string>wand.and.stars</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -581,6 +745,10 @@
 			<integer>250</integer>
 			<key>min</key>
 			<integer>40</integer>
+			<key>sfColor</key>
+			<string>#34C759</string>
+			<key>sfSymbol</key>
+			<string>hare.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -595,6 +763,10 @@
 			<string>bubOn</string>
 			<key>label</key>
 			<string>Nhấn giữ tạo bong bóng (Mode 2)</string>
+			<key>sfColor</key>
+			<string>#5AC8FA</string>
+			<key>sfSymbol</key>
+			<string>bubble.left.and.bubble.right.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -611,6 +783,10 @@
 			<integer>84</integer>
 			<key>min</key>
 			<integer>40</integer>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>circle.inset.filled</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -625,6 +801,10 @@
 			<string>keepPinned</string>
 			<key>label</key>
 			<string>Giữ app ghim khi dọn RAM</string>
+			<key>sfColor</key>
+			<string>#FF9500</string>
+			<key>sfSymbol</key>
+			<string>pin.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -643,6 +823,10 @@
 			<string>debug</string>
 			<key>label</key>
 			<string>Ghi nhật ký chẩn đoán (Log)</string>
+			<key>sfColor</key>
+			<string>#8E8E93</string>
+			<key>sfSymbol</key>
+			<string>doc.text.magnifyingglass</string>
 		</dict>
 		<dict>
 			<key>action</key>
@@ -651,6 +835,10 @@
 			<string>PSButtonCell</string>
 			<key>label</key>
 			<string>Đặt lại thông số mặc định</string>
+			<key>sfColor</key>
+			<string>#FF3B30</string>
+			<key>sfSymbol</key>
+			<string>arrow.counterclockwise</string>
 		</dict>
 	</array>
 	<key>title</key>

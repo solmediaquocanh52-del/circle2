@@ -1,2 +1,2 @@
-// CSRing.h - redirect sang CSRingV2.h de tranh xung dot struct
+// CSRing.h - redirect sang CSRingV2.h
 #include "CSRingV2.h"

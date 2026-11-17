@@ -1,12 +1,5 @@
-# CircleSwitcher v1.2.0 (iOS 14 - 16.3.1 Rootless)
-Thay đổi App Switcher thành vòng tròn 3D cuộn vô tận cả hai chiều trái và phải.
-
-## Build tự động trên GitHub Actions
-1. Kéo thả toàn bộ các file và thư mục (bao gồm cả thư mục ẩn `.github`) lên repo GitHub của bạn.
-2. Vào tab **Actions** trên GitHub -> chọn **Build CircleSwitcher (.deb)** -> tải file `.deb` trong mục **Artifacts**.
-3. Cài bằng **Sileo** và **Respring**.
-
-## Build trực tiếp bằng Theos trên iPhone
-```bash
-make clean && make package
-```
+# CircleSwitcher v1.4.1 (iOS 14 - 16.3.1 Rootless)
+- **Morph hình tròn thật 100% (`csSetCircleMorph`)**: Biến từng app thành hình tròn phát sáng mượt mà khi vuốt mở đa nhiệm, không còn dạng thẻ chữ nhật dọc bị bóp méo.
+- **Motion Blur động khi vuốt & xoay**: Hiệu ứng làm mờ chuyển động mượt mà khi thu nhỏ app vào vòng tròn hoặc vuốt xoay tốc độ cao, tự động sắc nét `@3x` khi dừng lại.
+- **Tối ưu 60/120Hz không khựng lag**: Khóa slot ổn định, sắp xếp lại z-order chuẩn 3D (`bringSubviewToFront:`), ẩn toàn bộ header/icon/nút Bubble chồng chéo ở đỉnh màn hình.
+- **Đầy đủ Cài đặt (`layout/Library/PreferenceLoader/Preferences/CircleSwitcherPrefs.plist`)**: Hiện sẵn trong Cài đặt iPhone với giao diện xem trước 3D trực quan.

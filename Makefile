@@ -7,7 +7,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = CircleSwitcher
 CircleSwitcher_FILES = Tweak.x
-CircleSwitcher_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-error
+CircleSwitcher_CFLAGS = -fobjc-arc -O3 -Wno-deprecated-declarations -Wno-error
 CircleSwitcher_FRAMEWORKS = UIKit QuartzCore AudioToolbox
 
 SUBPROJECTS += prefs

@@ -37,7 +37,7 @@ static double prefDouble(CFStringRef key, double def) {
 
 typedef struct {
     BOOL enabled, icon, onlyFront, nameIcon, ram, inertia, haptic, dots, bubOn, keepPinned, debug;
-    BOOL ringGlow, namePill, snapCircle, chevron;
+    BOOL ringGlow, namePill, snapCircle, chevron, crispText, motionBlurOn;
     int count, namePos, mode, style;
     double radius, tilt, cam, blur, size, off, bubSize;
     double iconSize, centerSize, dim, bgBlur, glowHue;
@@ -61,32 +61,34 @@ static void loadCfg(void) {
     C.bubOn = prefBool(CFSTR("bubOn"), YES);
     C.keepPinned = prefBool(CFSTR("keepPinned"), YES);
     C.debug = prefBool(CFSTR("debug"), NO);
+    C.crispText = prefBool(CFSTR("crispText"), YES);
+    C.motionBlurOn = prefBool(CFSTR("motionBlurOn"), YES);
     C.count = (int)lround(prefDouble(CFSTR("count"), 8));
     if (C.count < 3) C.count = 3;
     if (C.count > 12) C.count = 12;
-    C.namePos = (int)prefDouble(CFSTR("namePos"), 0);
-    C.radius = prefDouble(CFSTR("radius"), 120);
-    C.tilt = prefDouble(CFSTR("tilt"), 35);
+    C.namePos = (int)prefDouble(CFSTR("namePos"), 2);
+    C.radius = prefDouble(CFSTR("radius"), 125);
+    C.tilt = prefDouble(CFSTR("tilt"), 32);
     C.cam = prefDouble(CFSTR("cam"), 22);
-    C.blur = prefDouble(CFSTR("blur"), 2);
+    C.blur = prefDouble(CFSTR("blur"), 1.5);
     C.size = prefDouble(CFSTR("size"), 100);
     C.off = prefDouble(CFSTR("off"), 0);
     C.bubSize = prefDouble(CFSTR("bubSize"), 56);
     C.style = (int)prefDouble(CFSTR("style"), 1);
     if (C.style < 0 || C.style > 3) C.style = 1;
     C.ringGlow = prefBool(CFSTR("ringGlow"), YES);
-    C.namePill = prefBool(CFSTR("namePill"), NO);
+    C.namePill = prefBool(CFSTR("namePill"), YES);
     C.snapCircle = prefBool(CFSTR("snapCircle"), YES);
     C.chevron = prefBool(CFSTR("chevron"), YES);
     C.iconSize = prefDouble(CFSTR("iconSize"), 100);
     C.centerSize = prefDouble(CFSTR("centerSize"), 100);
     C.dim = prefDouble(CFSTR("dim"), 35);
     C.bgBlur = prefDouble(CFSTR("bgBlur"), 10);
-    C.glowHue = prefDouble(CFSTR("glowHue"), 225);
+    C.glowHue = prefDouble(CFSTR("glowHue"), 215);
     C.gap = prefDouble(CFSTR("gap"), 100);
     C.cardCorner = prefDouble(CFSTR("cardCorner"), 28);
-    C.glowAmt = prefDouble(CFSTR("glowAmt"), 70);
-    C.moveBlur = prefDouble(CFSTR("moveBlur"), 3);
+    C.glowAmt = prefDouble(CFSTR("glowAmt"), 75);
+    C.moveBlur = prefDouble(CFSTR("moveBlur"), 4.5);
     C.openSpeed = prefDouble(CFSTR("openSpeed"), 100);
     C.openAnim = prefBool(CFSTR("openAnim"), YES);
 }
@@ -135,7 +137,7 @@ static void csLog(NSString *fmt, ...) {
     } @catch (NSException *e) {}
 }
 
-#pragma mark - runtime helpers
+#pragma mark - runtime & pixel snap helpers
 
 static id send0(id o, NSString *s) {
     SEL sel = NSSelectorFromString(s);
@@ -150,6 +152,28 @@ static id send1(id o, NSString *s, id a) {
 static double clampd(double v, double a, double b) { return v < a ? a : (v > b ? b : v); }
 static double normDeg(double a) { a = fmod(a + 180.0, 360.0); if (a < 0) a += 360.0; return a - 180.0; }
 static double wrap360(double a) { a = fmod(a, 360.0); if (a < 0) a += 360.0; return a; }
+
+static inline CGFloat csScreenScale(void) {
+    static CGFloat sc = 0;
+    if (sc <= 0) sc = MAX(1.0, UIScreen.mainScreen.scale);
+    return sc;
+}
+
+static inline CGFloat csSnapPx(CGFloat v) {
+    CGFloat sc = csScreenScale();
+    return round(v * sc) / sc;
+}
+
+static inline CGPoint csSnapPoint(CGPoint p) {
+    return CGPointMake(csSnapPx(p.x), csSnapPx(p.y));
+}
+
+static void csConfigureHighFPSLink(CADisplayLink *link) {
+    if (!link) return;
+    if (@available(iOS 15.0, *)) {
+        link.preferredFrameRateRange = CAFrameRateRangeMake(60, 120, 120);
+    }
+}
 
 #pragma mark - app info
 
@@ -186,7 +210,7 @@ static UIImage *appIcon(NSString *bid) {
     Class k = UIImage.class;
     SEL s = NSSelectorFromString(@"_applicationIconImageForBundleIdentifier:format:scale:");
     if ([k respondsToSelector:s]) {
-        @try { return ((id (*)(id, SEL, id, int, double))objc_msgSend)(k, s, bid, 2, UIScreen.mainScreen.scale); } @catch (NSException *e) {}
+        @try { return ((id (*)(id, SEL, id, int, double))objc_msgSend)(k, s, bid, 2, csScreenScale()); } @catch (NSException *e) {}
     }
     return nil;
 }
@@ -385,19 +409,30 @@ static void openApp(NSString *bid) {
 @interface CSLabel : UILabel
 @end
 @implementation CSLabel
-- (void)drawTextInRect:(CGRect)r { [super drawTextInRect:UIEdgeInsetsInsetRect(r, UIEdgeInsetsMake(2, 9, 2, 9))]; }
-- (CGSize)sizeThatFits:(CGSize)size { CGSize s = [super sizeThatFits:size]; return CGSizeMake(s.width + 18, s.height + 4); }
+- (instancetype)initWithFrame:(CGRect)f {
+    if ((self = [super initWithFrame:f])) {
+        self.contentScaleFactor = csScreenScale();
+        self.layer.contentsScale = csScreenScale();
+        self.layer.shouldRasterize = NO;
+    }
+    return self;
+}
+- (void)drawTextInRect:(CGRect)r { [super drawTextInRect:UIEdgeInsetsInsetRect(r, UIEdgeInsetsMake(4, 14, 4, 14))]; }
+- (CGSize)sizeThatFits:(CGSize)size {
+    CGSize s = [super sizeThatFits:size];
+    return CGSizeMake(ceil(s.width + 28), ceil(s.height + 8));
+}
 @end
 
 static NSAttributedString *labelFor(CSItem *it) {
     NSMutableAttributedString *as = [NSMutableAttributedString new];
-    UIFont *f = [UIFont systemFontOfSize:(C.namePill ? 12 : 16) weight:UIFontWeightMedium];
+    UIFont *f = [UIFont systemFontOfSize:(C.namePill ? 13 : 16) weight:UIFontWeightSemibold];
     NSDictionary *at = @{NSFontAttributeName: f, NSForegroundColorAttributeName: UIColor.whiteColor};
     if (C.nameIcon && it.icon) {
         NSTextAttachment *ta = [NSTextAttachment new];
-        ta.image = it.icon; ta.bounds = CGRectMake(0, -3, 14, 14);
+        ta.image = it.icon; ta.bounds = CGRectMake(0, -3, 15, 15);
         [as appendAttributedString:[NSAttributedString attributedStringWithAttachment:ta]];
-        [as appendAttributedString:[[NSAttributedString alloc] initWithString:@" " attributes:at]];
+        [as appendAttributedString:[[NSAttributedString alloc] initWithString:@"  " attributes:at]];
     }
     [as appendAttributedString:[[NSAttributedString alloc] initWithString:(it.name ?: it.bid) attributes:at]];
     if (it.pinned) {
@@ -411,7 +446,7 @@ static NSAttributedString *labelFor(CSItem *it) {
     }
     if (C.ram && it.ram > 0) {
         [as appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"  %d MB", (int)it.ram]
-            attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:11], NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.65]}]];
+            attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:11], NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.75]}]];
     }
     return as;
 }
@@ -421,6 +456,7 @@ static NSAttributedString *labelFor(CSItem *it) {
 @property (nonatomic, strong) CAGradientLayer *grad;
 @property (nonatomic, strong) UIImageView *icon, *icon2;
 @property (nonatomic, strong) id blurFilter;
+@property (nonatomic, assign) double lastBlurRadius;
 @property (nonatomic, assign) CGRect hit;
 @property (nonatomic, assign) CGFloat zv;
 @property (nonatomic, assign) BOOL circle, neon;
@@ -432,6 +468,9 @@ static NSAttributedString *labelFor(CSItem *it) {
 @implementation CSCard
 - (instancetype)initWithFrame:(CGRect)f {
     if ((self = [super initWithFrame:f])) {
+        self.layer.contentsScale = csScreenScale();
+        self.layer.shouldRasterize = NO;
+        _lastBlurRadius = -1;
         _front = [UIView new];
         _front.layer.cornerRadius = 18; _front.layer.masksToBounds = YES;
         _front.layer.borderWidth = 0.5; _front.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.25].CGColor;
@@ -468,7 +507,7 @@ static NSAttributedString *labelFor(CSItem *it) {
     CGFloat cr = self.circle ? bw / 2 : (self.neon ? C.cardCorner : 18);
     self.front.layer.cornerRadius = cr; self.back.layer.cornerRadius = cr;
     self.icon.layer.cornerRadius = self.circle ? s * 0.225 : 12;
-    self.front.layer.borderWidth = self.circle ? 1.6 : (self.neon ? 2.0 : 0.5);
+    self.front.layer.borderWidth = self.circle ? 1.8 : (self.neon ? 2.0 : 0.5);
     UIColor *nb = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.45 brightness:1 alpha:0.9];
     self.front.layer.borderColor = (self.neon ? nb : [UIColor colorWithWhite:1 alpha:self.circle ? 0.65 : 0.25]).CGColor;
     if (self.circle) self.layer.shadowPath = [UIBezierPath bezierPathWithOvalInRect:self.bounds].CGPath;
@@ -482,7 +521,9 @@ static NSAttributedString *labelFor(CSItem *it) {
 }
 - (void)setBlur:(double)r {
     @try {
-        if (r < 0.05) { if (self.layer.filters) self.layer.filters = nil; return; }
+        if (fabs(r - self.lastBlurRadius) < 0.06) return;
+        self.lastBlurRadius = r;
+        if (r < 0.06) { if (self.layer.filters) self.layer.filters = nil; return; }
         if (!self.blurFilter) self.blurFilter = send1((id)NSClassFromString(@"CAFilter"), @"filterWithType:", @"gaussianBlur");
         if (!self.blurFilter) return;
         [self.blurFilter setValue:@(r) forKey:@"inputRadius"];
@@ -622,7 +663,7 @@ static void csAddBubble(CSItem *it, CGPoint from) {
     csLog(@"bubble added: %@", it.bid);
 }
 
-#pragma mark - overlay (Mode 2 - Cuộn vô tận cả trái & phải)
+#pragma mark - overlay (Mode 2)
 
 @interface CSOverlay : UIView <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIVisualEffectView *blurBg;
@@ -715,9 +756,7 @@ static BOOL csForceHidden;
     return self;
 }
 
-- (void)dealloc {
-    [self stopLink];
-}
+- (void)dealloc { [self stopLink]; }
 
 - (UIButton *)roundButton:(NSString *)sym action:(SEL)a {
     UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -753,15 +792,13 @@ static BOOL csForceHidden;
     [self relayout];
 }
 
-#pragma mark helpers
-
 - (double)step { return self.items.count ? 360.0 / self.items.count : 360.0; }
 - (NSString *)frontBID { return (self.front >= 0 && self.front < (NSInteger)self.items.count) ? self.items[self.front].bid : nil; }
 
 - (void)toast:(NSString *)t {
     self.toastLabel.text = t; [self.toastLabel sizeToFit];
     CGRect f = self.toastLabel.frame; f.size.height = 26;
-    self.toastLabel.frame = f; self.toastLabel.center = CGPointMake(self.bounds.size.width / 2, 70);
+    self.toastLabel.frame = f; self.toastLabel.center = csSnapPoint(CGPointMake(self.bounds.size.width / 2, 70));
     self.toastLabel.alpha = 1;
     [UIView animateWithDuration:0.3 delay:1.6 options:0 animations:^{ self.toastLabel.alpha = 0; } completion:nil];
 }
@@ -773,8 +810,6 @@ static BOOL csForceHidden;
         [self.hapticGen impactOccurred];
     } @catch (NSException *e) { AudioServicesPlaySystemSound(1519); }
 }
-
-#pragma mark data
 
 - (void)reloadItems {
     NSArray *ids = recentBundleIDs();
@@ -810,9 +845,9 @@ static BOOL csForceHidden;
         [c configure:it showIcon:C.icon];
         [self.ring addSubview:c]; [self.cards addObject:c];
         CSLabel *l = [CSLabel new];
-        l.backgroundColor = C.namePill ? [UIColor colorWithWhite:0.1 alpha:0.78] : UIColor.clearColor;
-        l.layer.cornerRadius = 11; l.layer.masksToBounds = YES;
-        if (!C.namePill) { l.layer.shadowColor = UIColor.blackColor.CGColor; l.layer.shadowOpacity = 0.5; l.layer.shadowRadius = 3; l.layer.shadowOffset = CGSizeZero; l.layer.masksToBounds = NO; }
+        l.backgroundColor = C.namePill ? [UIColor colorWithWhite:0.1 alpha:0.82] : UIColor.clearColor;
+        l.layer.cornerRadius = 12; l.layer.masksToBounds = YES;
+        if (!C.namePill) { l.layer.shadowColor = UIColor.blackColor.CGColor; l.layer.shadowOpacity = 0.55; l.layer.shadowRadius = 3; l.layer.shadowOffset = CGSizeZero; l.layer.masksToBounds = NO; }
         l.attributedText = labelFor(it); [l sizeToFit];
         [self.labelHost addSubview:l]; [self.labels addObject:l];
     }
@@ -836,8 +871,6 @@ static BOOL csForceHidden;
     }
 }
 
-#pragma mark layout
-
 - (void)applyBackground {
     self.backgroundColor = [UIColor colorWithWhite:0 alpha:CSClamp(C.dim, 0, 90) / 100.0];
     self.blurBg.hidden = C.bgBlur < 0.5;
@@ -845,23 +878,29 @@ static BOOL csForceHidden;
 }
 
 - (void)relayout {
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     [self applyBackground];
     BOOL circ = C.style <= 1;
     if (!circ) {
         self.glowRing.hidden = YES; self.bubble.hidden = YES; self.chev.hidden = YES;
         [self relayoutCards];
     } else [self relayoutRing];
+    [CATransaction commit];
 }
 
 - (void)relayoutRing {
     NSInteger n = self.items.count;
     if (n != (NSInteger)self.cards.count) return;
     CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
-    CGFloat cx = W / 2, cy = H * 0.46;
+    CGFloat cx = csSnapPx(W / 2), cy = csSnapPx(H * 0.46);
     self.ring.bounds = CGRectMake(0, 0, 2, 2); self.ring.center = CGPointMake(cx, cy);
     self.ring.layer.sublayerTransform = CATransform3DIdentity;
     double step = [self step];
     CSRingCfg cfg = csCfg();
+    double spd = fabs(self.rot - self.lastRot); self.lastRot = self.rot;
+    double mblur = C.motionBlurOn ? C.moveBlur * MIN(1.0, spd / MAX(step * 0.16, 0.35)) : 0;
+
     if (C.ringGlow) {
         double gx, gy, rx, ry; CSRingGlowRect(cfg, &gx, &gy, &rx, &ry);
         UIColor *g = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.6 brightness:1 alpha:1];
@@ -881,15 +920,19 @@ static BOOL csForceHidden;
         if (i == self.front && self.dragY != 0) y += self.dragY;
         if (fabs(card.bounds.size.width - 100) > 0.5 || fabs(card.bounds.size.height - 100) > 0.5) card.bounds = CGRectMake(0, 0, 100, 100);
         double f = p.dia / 100.0;
-        card.layer.position = CGPointMake(1 + p.x, 1 + y);
-        CATransform3D t = CATransform3DIdentity; t.m34 = -1.0 / p.perspective;
-        t = CATransform3DRotate(t, p.yaw, 0, 1, 0);
+        card.layer.position = csSnapPoint(CGPointMake(1 + p.x, 1 + y));
+        CATransform3D t = CATransform3DIdentity;
+        if (!C.crispText || fabs(p.yaw) > 0.008) {
+            t.m34 = -1.0 / p.perspective;
+            t = CATransform3DRotate(t, p.yaw, 0, 1, 0);
+        }
         t = CATransform3DScale(t, f, f, 1);
         card.layer.transform = t; card.layer.zPosition = p.z + p.k * 2;
         double op = p.opacity;
         if (i == self.front && self.dragY < 0) op *= MAX(0.2, 1 + self.dragY / 220.0);
         card.alpha = op;
-        [card setBlur:(C.style == 1 ? C.blur * MIN(1.0, fabs(phi) / 90.0) : 0)];
+        double distBlur = (C.style == 1 ? C.blur * MIN(1.0, fabs(phi) / 90.0) : 0);
+        [card setBlur:distBlur + mblur];
         [card setGlow:p.k];
         card.front.hidden = NO; card.back.hidden = YES;
         double px = cx + p.x, py = cy + y, rr = p.dia / 2;
@@ -904,10 +947,10 @@ static BOOL csForceHidden;
             double ly;
             if (C.style == 0) {
                 ly = C.namePos == 0 ? py - rr - 18 : (C.namePos == 1 ? cy + C.off + bubR + 26 : cy + C.off + cfg.radius * 1.25 + selDia / 2 + 28);
-                lb.center = CGPointMake(C.namePos == 0 ? px : cx, ly);
+                lb.center = csSnapPoint(CGPointMake(C.namePos == 0 ? px : cx, ly));
             } else {
-                ly = C.namePos == 0 ? py - rr - 20 : (C.namePos == 1 ? py : py + rr + 20);
-                lb.center = CGPointMake(px, ly);
+                ly = C.namePos == 0 ? py - rr - 22 : (C.namePos == 1 ? py : py + rr + 22);
+                lb.center = csSnapPoint(CGPointMake(px, ly));
             }
             lb.transform = CGAffineTransformIdentity;
             lb.alpha = 1;
@@ -919,7 +962,7 @@ static BOOL csForceHidden;
     self.bubble.hidden = !flat;
     if (flat) {
         double bd = 118.0 * C.centerSize / 100.0 * C.size / 100.0;
-        self.bubble.bounds = CGRectMake(0, 0, bd, bd); self.bubble.center = CGPointMake(cx, cy + C.off);
+        self.bubble.bounds = CGRectMake(0, 0, bd, bd); self.bubble.center = csSnapPoint(CGPointMake(cx, cy + C.off));
         self.bubble.layer.cornerRadius = bd / 2;
         self.bubbleIcon.frame = CGRectInset(self.bubble.bounds, bd * 0.24, bd * 0.24);
         self.bubbleIcon.layer.cornerRadius = bd * 0.12;
@@ -927,7 +970,7 @@ static BOOL csForceHidden;
         self.bubbleIcon.hidden = !C.icon;
     }
     self.chev.hidden = !(C.style == 0 && C.chevron && n > 0);
-    if (!self.chev.hidden) self.chev.center = CGPointMake(cx, selY - selDia / 2 - (C.namePos == 0 && C.style == 0 ? 52 : 26));
+    if (!self.chev.hidden) self.chev.center = csSnapPoint(CGPointMake(cx, selY - selDia / 2 - (C.namePos == 0 && C.style == 0 ? 52 : 26)));
     if (front != self.front) {
         BOOL first = (self.front == -2);
         self.front = front;
@@ -940,7 +983,7 @@ static BOOL csForceHidden;
     NSInteger n = self.items.count;
     if (n != (NSInteger)self.cards.count) return;
     CGFloat W = self.bounds.size.width, H = self.bounds.size.height, P = 900;
-    CGFloat cx = W / 2, cy = H * 0.46 + C.off;
+    CGFloat cx = csSnapPx(W / 2), cy = csSnapPx(H * 0.46 + C.off);
     self.ring.bounds = CGRectMake(0, 0, 2, 2); self.ring.center = CGPointMake(cx, cy);
     CATransform3D persp = CATransform3DIdentity; persp.m34 = -1.0 / P;
     self.ring.layer.sublayerTransform = persp;
@@ -949,7 +992,7 @@ static BOOL csForceHidden;
     BOOL neon = C.style == 3;
     double gm = neon ? C.gap / 100.0 : 1.0;
     double spd = fabs(self.rot - self.lastRot); self.lastRot = self.rot;
-    double mblur = neon ? C.moveBlur * MIN(1.0, spd / MAX(step * 0.2, 0.5)) : 0;
+    double mblur = C.motionBlurOn ? C.moveBlur * MIN(1.0, spd / MAX(step * 0.16, 0.35)) : 0;
     double best = 1e9; NSInteger front = -1;
     NSMutableArray *order = [NSMutableArray array];
     for (NSInteger i = 0; i < n; i++) {
@@ -967,7 +1010,7 @@ static BOOL csForceHidden;
         card.center = CGPointMake(1, 1);
         CATransform3D t = CATransform3DIdentity;
         t = CATransform3DTranslate(t, x, y, z);
-        t = CATransform3DRotate(t, yaw, 0, 1, 0);
+        if (!C.crispText || fabs(yaw) > 0.008) t = CATransform3DRotate(t, yaw, 0, 1, 0);
         if (neon) t = CATransform3DScale(t, fsc, fsc, 1);
         card.layer.transform = t;
         double op = 0.4 + 0.6 * (cos(r) + 1) / 2;
@@ -985,7 +1028,7 @@ static BOOL csForceHidden;
         lb.hidden = !show;
         if (show) {
             double ly = C.namePos == 0 ? py - hh - 16 : (C.namePos == 2 ? py + hh + 16 : py);
-            lb.center = CGPointMake(px, ly);
+            lb.center = csSnapPoint(CGPointMake(px, ly));
             lb.transform = CGAffineTransformMakeScale(s, s);
             lb.alpha = op;
         }
@@ -1001,33 +1044,26 @@ static BOOL csForceHidden;
     }
 }
 
-#pragma mark animation
-
 - (void)startLink {
     if (!self.link) {
         self.link = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrame:)];
+        csConfigureHighFPSLink(self.link);
         [self.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     }
     self.link.paused = NO;
 }
 
 - (void)stopLink {
-    if (self.link) {
-        [self.link invalidate];
-        self.link = nil;
-    }
+    if (self.link) { [self.link invalidate]; self.link = nil; }
 }
 
 - (void)onFrame:(CADisplayLink *)l {
     double dt = MAX(0.001, l.targetTimestamp - l.timestamp);
     if (self.anim == 1) {
         self.t += dt;
-        double p = MIN(1.0, self.t / 0.28), k = 1 - pow(1 - p, 3);
+        double p = MIN(1.0, self.t / 0.26), k = 1 - pow(1 - p, 3);
         self.rot = self.from + (self.to - self.from) * k;
-        if (p >= 1) {
-            self.rot = wrap360(self.rot);
-            self.anim = 0; l.paused = YES;
-        }
+        if (p >= 1) { self.rot = wrap360(self.rot); self.anim = 0; l.paused = YES; }
     } else if (self.anim == 2) {
         self.rot += self.vel * dt;
         self.vel *= pow(0.94, dt * 60);
@@ -1043,8 +1079,6 @@ static BOOL csForceHidden;
 - (void)snap { double st = [self step]; [self tweenTo:round(self.rot / st) * st]; }
 - (void)rotateToIndex:(NSInteger)i { [self tweenTo:self.rot + normDeg(i * [self step] - self.rot)]; }
 
-#pragma mark card hit
-
 - (CSCard *)cardAt:(CGPoint)p {
     CSCard *best = nil;
     for (CSCard *c in self.cards) {
@@ -1052,8 +1086,6 @@ static BOOL csForceHidden;
     }
     return best;
 }
-
-#pragma mark gestures
 
 - (void)onPan:(UIPanGestureRecognizer *)g {
     [self touchedNow];
@@ -1131,8 +1163,6 @@ static BOOL csForceHidden;
     CFPreferencesAppSynchronize(CS_DOMAIN);
     csHideOverlay();
 }
-
-#pragma mark actions
 
 - (void)openFront {
     NSString *b = [self frontBID];
@@ -1391,20 +1421,26 @@ static void csStaticDump(void) {
     }
 }
 
-#pragma mark - Mode 0: Real Switcher (SBFluidSwitcherViewController + SBDeckSwitcherViewController) - Cuộn vô tận 2 chiều
+#pragma mark - Mode 0: True Circular Morph + Dynamic Motion Blur + Zero-Lag 60/120fps Engine
 
 #define CS_MARKER @"/var/mobile/Documents/CircleSwitcher.armed"
 static BOOL csTripped, csMarkerOn;
 static double csLastApply;
-static const void *kMineP = &kMineP, *kMineT = &kMineT, *kSysP = &kSysP, *kSysT = &kSysT, *kSysO = &kSysO, *kApplied = &kApplied, *kMineO = &kMineO;
+static const void *kMineP = &kMineP, *kMineT = &kMineT, *kSysP = &kSysP, *kSysT = &kSysT, *kSysO = &kSysO, *kApplied = &kApplied, *kMineO = &kMineO, *kSysZ = &kSysZ;
+static const void *kCrispApplied = &kCrispApplied, *kOrigRast = &kOrigRast;
+static const void *kOrigMask = &kOrigMask, *kMaskSaved = &kMaskSaved, *kCircleMask = &kCircleMask, *kCircleRim = &kCircleRim;
+static const void *kBlurFilter = &kBlurFilter, *kLastBlur = &kLastBlur;
+static const void *kStableSlot = &kStableSlot;
 
 static BOOL csM0Active;
 static double csM0Rot, csM0Vel, csM0From, csM0To, csM0T, csM0Step;
+static double csM0LastRot, csM0LastAvgK, csM0LastTs, csM0SmoothBlur;
 static int csM0Anim, csM0Count;
 static NSInteger csM0FrontSlot = -1;
 static CGRect csM0Hits[40];
 static double csM0Z[40];
 static __weak UIViewController *csM0VC;
+static __weak UIScrollView *csM0ScrollView;
 static CADisplayLink *csM0Link;
 static UIImpactFeedbackGenerator *csM0Haptic;
 
@@ -1418,6 +1454,21 @@ static void csM0Buzz(void) {
 
 static void csDeckLayout(UIViewController *vc);
 
+static void csSetScrollEnabled(UIView *root, BOOL enabled) {
+    if (!csM0ScrollView && root) {
+        for (UIView *sub in root.subviews) {
+            if ([sub isKindOfClass:UIScrollView.class]) { csM0ScrollView = (UIScrollView *)sub; break; }
+            for (UIView *sub2 in sub.subviews) {
+                if ([sub2 isKindOfClass:UIScrollView.class]) { csM0ScrollView = (UIScrollView *)sub2; break; }
+            }
+            if (csM0ScrollView) break;
+        }
+    }
+    if (csM0ScrollView && csM0ScrollView.scrollEnabled != enabled) {
+        csM0ScrollView.scrollEnabled = enabled;
+    }
+}
+
 @interface CSM0Handler : NSObject <UIGestureRecognizerDelegate>
 @end
 @implementation CSM0Handler
@@ -1425,6 +1476,7 @@ static void csDeckLayout(UIViewController *vc);
 - (void)startLink {
     if (!csM0Link) {
         csM0Link = [CADisplayLink displayLinkWithTarget:self selector:@selector(onFrame:)];
+        csConfigureHighFPSLink(csM0Link);
         [csM0Link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     }
     csM0Link.paused = NO;
@@ -1435,24 +1487,19 @@ static void csDeckLayout(UIViewController *vc);
     double dt = MAX(0.001, l.targetTimestamp - l.timestamp);
     if (csM0Anim == 1) {
         csM0T += dt;
-        double p = MIN(1.0, csM0T / 0.28), k = 1 - pow(1 - p, 3);
+        double p = MIN(1.0, csM0T / 0.25), k = 1 - pow(1 - p, 3);
         csM0Rot = csM0From + (csM0To - csM0From) * k;
-        if (p >= 1) {
-            csM0Rot = wrap360(csM0Rot);
-            csM0Anim = 0; l.paused = YES;
-        }
+        if (p >= 1) { csM0Rot = wrap360(csM0Rot); csM0Anim = 0; l.paused = YES; }
     } else if (csM0Anim == 2) {
         csM0Rot += csM0Vel * dt;
-        csM0Vel *= pow(0.94, dt * 60);
-        if (fabs(csM0Vel) < 25) {
+        csM0Vel *= pow(0.935, dt * 60);
+        if (fabs(csM0Vel) < 22) {
             double st = MAX(1.0, csM0Step);
             csM0From = csM0Rot;
             csM0To = round(csM0Rot / st) * st;
             csM0T = 0; csM0Anim = 1;
         }
-    } else {
-        l.paused = YES;
-    }
+    } else { l.paused = YES; }
     csDeckLayout(csM0VC);
 }
 
@@ -1470,10 +1517,7 @@ static void csDeckLayout(UIViewController *vc);
     NSInteger best = -1;
     double bestZ = -1e18;
     for (int j = 0; j < csM0Count && j < 40; j++) {
-        if (CGRectContainsPoint(csM0Hits[j], p) && csM0Z[j] > bestZ) {
-            bestZ = csM0Z[j];
-            best = j;
-        }
+        if (CGRectContainsPoint(csM0Hits[j], p) && csM0Z[j] > bestZ) { bestZ = csM0Z[j]; best = j; }
     }
     return best;
 }
@@ -1484,11 +1528,11 @@ static void csDeckLayout(UIViewController *vc);
     if (!v) return NO;
     CGSize sz = v.bounds.size;
     CGPoint pt = [g locationInView:v];
-    if (pt.y > sz.height - 44 || pt.y < 44) return NO;
+    if (pt.y > sz.height - 44 || pt.y < 54) return NO;
 
     if ([g isKindOfClass:UIPanGestureRecognizer.class]) {
         CGPoint vel = [(UIPanGestureRecognizer *)g velocityInView:v];
-        return fabs(vel.x) > fabs(vel.y) * 1.15;
+        return fabs(vel.x) > fabs(vel.y) * 1.1;
     }
     if ([g isKindOfClass:UITapGestureRecognizer.class]) {
         NSInteger slot = [self hitSlotAt:pt];
@@ -1498,9 +1542,7 @@ static void csDeckLayout(UIViewController *vc);
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)g shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
-    if ([g isKindOfClass:UIPanGestureRecognizer.class] && [other.view isKindOfClass:UIScrollView.class]) {
-        return NO;
-    }
+    if ([g isKindOfClass:UIPanGestureRecognizer.class] && [other.view isKindOfClass:UIScrollView.class]) return NO;
     return YES;
 }
 
@@ -1514,17 +1556,12 @@ static void csDeckLayout(UIViewController *vc);
     } else if (g.state == UIGestureRecognizerStateChanged) {
         CGPoint t = [g translationInView:v];
         [g setTranslation:CGPointZero inView:v];
-        csM0Rot -= t.x * (step / 110.0);
+        csM0Rot -= t.x * (step / 105.0);
         if (csM0VC) csDeckLayout(csM0VC);
     } else if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
-        double vel = -[g velocityInView:v].x * (step / 110.0);
-        if (C.inertia && fabs(vel) > 60) {
-            csM0Vel = vel;
-            csM0Anim = 2;
-            [self startLink];
-        } else {
-            [self snap];
-        }
+        double vel = -[g velocityInView:v].x * (step / 105.0);
+        if (C.inertia && fabs(vel) > 55) { csM0Vel = vel; csM0Anim = 2; [self startLink]; }
+        else [self snap];
     }
 }
 
@@ -1547,13 +1584,11 @@ static void csEnsureM0Gestures(UIView *v) {
     if (!v || [objc_getAssociatedObject(v, kM0Installed) boolValue]) return;
     if (!csM0Handler) csM0Handler = [CSM0Handler new];
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:csM0Handler action:@selector(onPan:)];
-    pan.delegate = csM0Handler;
-    pan.cancelsTouchesInView = YES;
+    pan.delegate = csM0Handler; pan.cancelsTouchesInView = YES;
     [v addGestureRecognizer:pan];
 
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:csM0Handler action:@selector(onTap:)];
-    tap.delegate = csM0Handler;
-    tap.cancelsTouchesInView = YES;
+    tap.delegate = csM0Handler; tap.cancelsTouchesInView = YES;
     [v addGestureRecognizer:tap];
 
     objc_setAssociatedObject(v, kM0Installed, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1564,32 +1599,94 @@ static BOOL csT3Near(CATransform3D a, CATransform3D b) {
            fabs(a.m34 - b.m34) < 1e-6 && fabs(a.m41 - b.m41) < 0.05 && fabs(a.m42 - b.m42) < 0.05 && fabs(a.m43 - b.m43) < 0.05;
 }
 
-static void csCollectHeadersOnly(UIView *v, int d, NSMutableArray *heads, int *budget) {
-    if (--(*budget) < 0 || d > 5) return;
+static BOOL csIsHeaderClass(NSString *n) {
+    return [n rangeOfString:@"Header"].location != NSNotFound ||
+           [n rangeOfString:@"IconImageContainer"].location != NSNotFound ||
+           [n rangeOfString:@"TitleView"].location != NSNotFound ||
+           [n rangeOfString:@"AppExpose"].location != NSNotFound ||
+           [n rangeOfString:@"Shelf"].location != NSNotFound;
+}
+
+// Quet va an TOAN BO header/icon/nut "v Bubble" o dinh man hinh trong ca cay view cua Switcher
+static void csSuppressSwitcherHeaders(UIView *v, int depth, BOOL hide) {
+    if (!v || depth > 8) return;
     NSString *n = NSStringFromClass(v.class);
-    if ([n rangeOfString:@"Header"].location != NSNotFound || [n rangeOfString:@"IconImageContainer"].location != NSNotFound) {
-        [heads addObject:v];
+    if (csIsHeaderClass(n)) {
+        if (hide) {
+            if (!v.hidden) v.hidden = YES;
+            if (v.alpha > 0.001) v.alpha = 0;
+        } else {
+            v.hidden = NO;
+            v.alpha = 1;
+        }
         return;
     }
-    for (UIView *x in v.subviews) csCollectHeadersOnly(x, d + 1, heads, budget);
+    // Khong di sau vao noi dung snapshot ben trong the app (tru header cua no)
+    if ([n rangeOfString:@"SnapshotView"].location != NSNotFound || [n rangeOfString:@"LiveContentView"].location != NSNotFound) return;
+    for (UIView *sub in v.subviews) {
+        csSuppressSwitcherHeaders(sub, depth + 1, hide);
+    }
 }
 
 static void csCollect(UIView *v, int d, NSMutableArray *cards, NSMutableArray *heads, int *budget) {
     if (--(*budget) < 0 || d > 10) return;
     NSString *n = NSStringFromClass(v.class);
-    if ([n rangeOfString:@"Header"].location != NSNotFound || [n rangeOfString:@"IconImageContainer"].location != NSNotFound) {
-        [heads addObject:v]; return;
-    }
+    if (csIsHeaderClass(n)) { [heads addObject:v]; return; }
     if ([n rangeOfString:@"ItemContainer"].location != NSNotFound) {
         [cards addObject:v];
-        int hb = 60;
-        for (UIView *sub in v.subviews) csCollectHeadersOnly(sub, 0, heads, &hb);
         return;
     }
     for (UIView *x in v.subviews) csCollect(x, d + 1, cards, heads, budget);
 }
 
-typedef struct { BOOL ok; CGPoint pos, scr; CATransform3D t; double sc, op; } CSSys;
+static void csApplyCrispness(UIView *v, int depth, BOOL enable) {
+    if (!v || depth > 2) return;
+    CALayer *L = v.layer;
+    CGFloat sc = csScreenScale();
+    if (enable) {
+        if (![objc_getAssociatedObject(v, kCrispApplied) boolValue]) {
+            objc_setAssociatedObject(v, kOrigRast, @(L.shouldRasterize), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(v, kCrispApplied, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (L.shouldRasterize) L.shouldRasterize = NO;
+        if (L.contentsScale < sc) L.contentsScale = sc;
+        L.minificationFilter = kCAFilterTrilinear;
+        L.magnificationFilter = kCAFilterLinear;
+    } else {
+        if ([objc_getAssociatedObject(v, kCrispApplied) boolValue]) {
+            NSNumber *orig = objc_getAssociatedObject(v, kOrigRast);
+            if (orig) L.shouldRasterize = orig.boolValue;
+            objc_setAssociatedObject(v, kCrispApplied, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
+    for (UIView *sub in v.subviews) {
+        csApplyCrispness(sub, depth + 1, enable);
+    }
+}
+
+// Motion blur dong tren the app khi vuot thu nho vao vong hoac xoay ngang toc do cao
+static void csApplyCardMotionBlur(UIView *c, double radius) {
+    @try {
+        CALayer *L = c.layer;
+        NSNumber *prev = objc_getAssociatedObject(c, kLastBlur);
+        if (prev && fabs(prev.doubleValue - radius) < 0.06) return;
+        objc_setAssociatedObject(c, kLastBlur, @(radius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (radius < 0.06) {
+            if (L.filters) L.filters = nil;
+            return;
+        }
+        id f = objc_getAssociatedObject(c, kBlurFilter);
+        if (!f) {
+            f = send1((id)NSClassFromString(@"CAFilter"), @"filterWithType:", @"gaussianBlur");
+            if (!f) return;
+            objc_setAssociatedObject(c, kBlurFilter, f, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        [f setValue:@(radius) forKey:@"inputRadius"];
+        L.filters = @[f];
+    } @catch (NSException *e) {}
+}
+
+typedef struct { BOOL ok; CGPoint pos, scr; CATransform3D t; double sc, op, z; } CSSys;
 
 static CSSys csCapture(UIView *c) {
     CSSys s; memset(&s, 0, sizeof s);
@@ -1605,12 +1702,15 @@ static CSSys csCapture(UIView *c) {
         objc_setAssociatedObject(c, kSysP, [NSValue valueWithCGPoint:curP], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(c, kSysT, [NSValue valueWithCATransform3D:curT], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         objc_setAssociatedObject(c, kSysO, @(L.opacity), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(c, kSysZ, @(L.zPosition), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     NSValue *spv = objc_getAssociatedObject(c, kSysP), *stv = objc_getAssociatedObject(c, kSysT);
     if (!spv || !stv) return s;
     s.pos = spv.CGPointValue; s.t = stv.CATransform3DValue;
     NSNumber *so = objc_getAssociatedObject(c, kSysO);
+    NSNumber *sz = objc_getAssociatedObject(c, kSysZ);
     s.op = so ? so.doubleValue : 1.0;
+    s.z = sz ? sz.doubleValue : 0.0;
     if (!isfinite(s.pos.x) || !isfinite(s.pos.y)) return s;
     CGAffineTransform st = CATransform3DGetAffineTransform(s.t);
     s.sc = hypot(st.a, st.b);
@@ -1619,19 +1719,72 @@ static CSSys csCapture(UIView *c) {
     return s;
 }
 
-static const void *kMaskL = &kMaskL, *kHid = &kHid;
+static const void *kHid = &kHid;
 
-static void csSetCircleMask(UIView *c, BOOL on) {
+// Morph muot tu hinh chu nhat bo goc (k=0) sang HINH TRON HOAN HAO (k=1) + vien phat sang
+static void csSetCircleMorph(UIView *c, BOOL on, double kMorph, double highlightK) {
     CALayer *L = c.layer;
-    CAShapeLayer *mine = objc_getAssociatedObject(c, kMaskL);
-    if (!on) { if (mine && L.mask == mine) L.mask = nil; objc_setAssociatedObject(c, kMaskL, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); return; }
-    if (L.mask && L.mask != mine) return;
+    CAShapeLayer *mine = objc_getAssociatedObject(c, kCircleMask);
+    CAShapeLayer *rim = objc_getAssociatedObject(c, kCircleRim);
+
+    if (!on || kMorph <= 0.01) {
+        if ([objc_getAssociatedObject(c, kMaskSaved) boolValue]) {
+            L.mask = objc_getAssociatedObject(c, kOrigMask);
+            objc_setAssociatedObject(c, kOrigMask, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(c, kMaskSaved, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        } else if (mine && L.mask == mine) {
+            L.mask = nil;
+        }
+        if (rim) rim.hidden = YES;
+        return;
+    }
+
+    if (![objc_getAssociatedObject(c, kMaskSaved) boolValue]) {
+        objc_setAssociatedObject(c, kOrigMask, L.mask, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(c, kMaskSaved, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
     CGFloat bw = c.bounds.size.width, bh = c.bounds.size.height;
-    if (!mine) { mine = [CAShapeLayer layer]; mine.fillColor = UIColor.blackColor.CGColor; objc_setAssociatedObject(c, kMaskL, mine, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-    CGRect r = CGRectMake(0, (bh - bw) / 2, bw, bw);
+    if (bw < 1 || bh < 1) return;
+
+    if (!mine) {
+        mine = [CAShapeLayer layer];
+        mine.fillColor = UIColor.blackColor.CGColor;
+        mine.contentsScale = csScreenScale();
+        objc_setAssociatedObject(c, kCircleMask, mine, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (!rim) {
+        rim = [CAShapeLayer layer];
+        rim.fillColor = UIColor.clearColor.CGColor;
+        rim.contentsScale = csScreenScale();
+        [L addSublayer:rim];
+        objc_setAssociatedObject(c, kCircleRim, rim, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    // Noi suy muot chieu cao tu bh (full screen) ve bw (hinh vuong 1:1) va bo goc ve bw/2 (hinh tron)
+    double t = CSClamp(kMorph, 0.0, 1.0);
+    double ts = t * t * (3.0 - 2.0 * t);
+    CGFloat curH = bh + (bw - bh) * ts;
+    CGFloat yOff = (bh - curH) * 0.5;
+    CGRect targetRect = CGRectMake(0, yOff, bw, curH);
+    CGFloat cr = 47.0 + (bw * 0.5 - 47.0) * ts;
+    if (cr > curH * 0.5) cr = curH * 0.5;
+
+    CGPathRef path = [UIBezierPath bezierPathWithRoundedRect:targetRect cornerRadius:cr].CGPath;
     mine.frame = c.bounds;
-    mine.path = [UIBezierPath bezierPathWithOvalInRect:r].CGPath;
-    L.mask = mine;
+    mine.path = path;
+    if (L.mask != mine) L.mask = mine;
+
+    // Vien sang bao quanh hinh tron
+    rim.hidden = NO;
+    rim.frame = c.bounds;
+    rim.path = path;
+    if (L.sublayers.lastObject != rim) [L addSublayer:rim];
+    UIColor *glowCol = C.ringGlow
+        ? [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.55 brightness:1.0 alpha:(0.5 + 0.48 * highlightK) * ts]
+        : [UIColor colorWithWhite:1.0 alpha:(0.4 + 0.45 * highlightK) * ts];
+    rim.strokeColor = glowCol.CGColor;
+    rim.lineWidth = (2.8 + 3.2 * highlightK) * (bw / 100.0);
 }
 
 static const void *kNeon = &kNeon;
@@ -1650,14 +1803,24 @@ static void csSetNeon(UIView *c, BOOL on, double k) {
 
 static void csHideHead(UIView *h, BOOL hide) {
     BOOL was = [objc_getAssociatedObject(h, kHid) boolValue];
-    if (hide && !was) { h.hidden = YES; objc_setAssociatedObject(h, kHid, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
-    else if (hide) h.hidden = YES;
-    else if (was) { h.hidden = NO; objc_setAssociatedObject(h, kHid, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+    if (hide) {
+        if (!was) objc_setAssociatedObject(h, kHid, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (!h.hidden) h.hidden = YES;
+        if (h.alpha > 0.001) h.alpha = 0;
+    } else if (was) {
+        h.hidden = NO;
+        h.alpha = 1;
+        objc_setAssociatedObject(h, kHid, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
 }
 
 static NSString *csTitleOf(UIView *v, int d) {
-    if (d > 5) return nil;
-    if ([v isKindOfClass:UILabel.class] && ((UILabel *)v).text.length) return ((UILabel *)v).text;
+    if (d > 6) return nil;
+    if ([v isKindOfClass:UILabel.class]) {
+        NSString *tx = ((UILabel *)v).text;
+        // Bo qua cac chu nhu "Bubble", "v Bubble"
+        if (tx.length && [tx rangeOfString:@"Bubble"].location == NSNotFound) return tx;
+    }
     for (UIView *x in v.subviews) { NSString *t = csTitleOf(x, d + 1); if (t) return t; }
     return nil;
 }
@@ -1668,24 +1831,47 @@ static void csShowName(NSString *t, CGPoint c) {
     if (!ensureWindow()) return;
     if (!csNameL) {
         csNameL = [CSLabel new]; csNameL.userInteractionEnabled = NO;
-        csNameL.textColor = UIColor.whiteColor; csNameL.font = [UIFont systemFontOfSize:16 weight:UIFontWeightMedium];
-        csNameL.layer.shadowColor = UIColor.blackColor.CGColor; csNameL.layer.shadowOpacity = 0.5; csNameL.layer.shadowRadius = 3; csNameL.layer.shadowOffset = CGSizeZero;
+        csNameL.textColor = UIColor.whiteColor; csNameL.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        csNameL.layer.cornerRadius = 14;
         [csRoot.view addSubview:csNameL];
     }
+    if (C.namePill) {
+        csNameL.backgroundColor = [UIColor colorWithRed:0.08 green:0.10 blue:0.16 alpha:0.86];
+        csNameL.layer.masksToBounds = YES;
+        csNameL.layer.borderWidth = 0.8;
+        csNameL.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.28].CGColor;
+        csNameL.layer.shadowOpacity = 0;
+    } else {
+        csNameL.backgroundColor = UIColor.clearColor;
+        csNameL.layer.masksToBounds = NO;
+        csNameL.layer.borderWidth = 0;
+        csNameL.layer.shadowColor = UIColor.blackColor.CGColor;
+        csNameL.layer.shadowOpacity = 0.65;
+        csNameL.layer.shadowRadius = 4;
+        csNameL.layer.shadowOffset = CGSizeZero;
+    }
     if (![csNameL.text isEqualToString:t]) { csNameL.text = t; [csNameL sizeToFit]; }
-    csNameL.center = c; csNameL.hidden = NO;
+    CGSize sz = csNameL.bounds.size;
+    CGFloat minY = 112.0; // Giu khoang cach an toan duoi tai tho / thanh trang thai
+    CGFloat x = csSnapPx(c.x - sz.width / 2.0);
+    CGFloat y = csSnapPx(MAX(minY, c.y - sz.height / 2.0));
+    csNameL.frame = CGRectMake(x, y, sz.width, sz.height);
+    csNameL.hidden = NO;
 }
 
 static void csRestore(UIView *c, CSSys s) {
     if (![objc_getAssociatedObject(c, kApplied) boolValue]) return;
-    csSetCircleMask(c, NO);
+    csSetCircleMorph(c, NO, 0, 0);
     csSetNeon(c, NO, 0);
+    csApplyCrispness(c, 0, NO);
+    csApplyCardMotionBlur(c, 0);
     CALayer *L = c.layer;
-    L.position = s.pos; L.transform = s.t; L.opacity = (float)s.op; L.zPosition = 0; L.doubleSided = YES;
+    L.position = s.pos; L.transform = s.t; L.opacity = (float)s.op; L.zPosition = (CGFloat)s.z; L.doubleSided = YES;
     objc_setAssociatedObject(c, kApplied, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(c, kMineP, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(c, kMineT, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(c, kMineO, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(c, kStableSlot, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static void csStamp(UIView *c) {
@@ -1717,10 +1903,10 @@ static void csRefresh(UIView *root) {
     double now = CACurrentMediaTime();
     if (now < csNextScan) return;
     NSMutableArray *cards = [NSMutableArray array], *heads = [NSMutableArray array];
-    int budget = 1200;
+    int budget = 1600;
     csCollect(root, 0, cards, heads, &budget);
     csCards = cards; csHeads = heads; csCacheRoot = root; csCacheSig = csSigOf();
-    if (!cards.count) csNextScan = now + 0.35;
+    if (!cards.count) csNextScan = now + 0.25;
 }
 
 static void csDeckLayout(UIViewController *vc) {
@@ -1728,6 +1914,8 @@ static void csDeckLayout(UIViewController *vc) {
     static BOOL busy;
     if (busy || !vc.isViewLoaded) return;
     busy = YES;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     @try {
         csM0VC = vc;
         csEnsureM0Gestures(vc.view);
@@ -1736,7 +1924,7 @@ static void csDeckLayout(UIViewController *vc) {
         int n = (int)MIN((NSUInteger)40, cards.count);
         if (n > 0) {
             double W = UIScreen.mainScreen.bounds.size.width;
-            CSSys sy[40]; double bw[40], ssc[40], newX[40], newY[40], ratio[40];
+            CSSys sy[40]; double bw[40], ssc[40], newX[40], newY[40], ratio[40], cardZ[40];
             BOOL vis[40], act[40]; int order[40], m = 0;
             for (int i = 0; i < n; i++) {
                 UIView *c = cards[i];
@@ -1745,13 +1933,33 @@ static void csDeckLayout(UIViewController *vc) {
                 ssc[i] = sy[i].sc * bw[i] / W;
                 vis[i] = sy[i].ok && !c.hidden && sy[i].op > 0.01 && ssc[i] > 0.02;
                 act[i] = NO;
+                cardZ[i] = -1e9;
                 if (vis[i]) order[m++] = i;
             }
-            for (int a = 1; a < m; a++) {
-                int t = order[a], b = a - 1;
-                while (b >= 0 && sy[order[b]].scr.x > sy[t].scr.x) { order[b + 1] = order[b]; b--; }
-                order[b + 1] = t;
+
+            BOOL hasLockedSlots = csM0Active;
+            if (hasLockedSlots) {
+                for (int a = 0; a < m; a++) {
+                    if (!objc_getAssociatedObject(cards[order[a]], kStableSlot)) { hasLockedSlots = NO; break; }
+                }
             }
+            if (hasLockedSlots) {
+                for (int a = 1; a < m; a++) {
+                    int t = order[a], b = a - 1;
+                    int st = [objc_getAssociatedObject(cards[t], kStableSlot) intValue];
+                    while (b >= 0 && [objc_getAssociatedObject(cards[order[b]], kStableSlot) intValue] > st) {
+                        order[b + 1] = order[b]; b--;
+                    }
+                    order[b + 1] = t;
+                }
+            } else {
+                for (int a = 1; a < m; a++) {
+                    int t = order[a], b = a - 1;
+                    while (b >= 0 && sy[order[b]].scr.x > sy[t].scr.x) { order[b + 1] = order[b]; b--; }
+                    order[b + 1] = t;
+                }
+            }
+
             if (m > 0) {
                 int capM = MIN(m, C.count);
                 int ctr = 0; double bestCtr = 1e9;
@@ -1764,18 +1972,46 @@ static void csDeckLayout(UIViewController *vc) {
                 csM0Count = capM;
 
                 double avgK = 0;
-                for (int j = 0; j < capM; j++) avgK += clampd((0.85 - ssc[order[j]]) / 0.25, 0, 1);
+                for (int j = 0; j < capM; j++) avgK += clampd((0.92 - ssc[order[j]]) / 0.30, 0, 1);
                 avgK /= MAX(1, capM);
 
-                if (avgK > 0.08 && !csM0Active) {
+                // Tinh toc do vuot morph (khi keo app thu nho vao vong) & toc do xoay ngang -> Motion Blur muot ma
+                double nowTs = CACurrentMediaTime();
+                double dt = csM0LastTs > 0 ? clampd(nowTs - csM0LastTs, 0.004, 0.05) : 0.016;
+                csM0LastTs = nowTs;
+                double dRot = fabs(normDeg(csM0Rot - csM0LastRot));
+                csM0LastRot = csM0Rot;
+                double dK = fabs(avgK - csM0LastAvgK);
+                csM0LastAvgK = avgK;
+
+                double spinVel = dRot / dt; // deg/s
+                double morphVel = dK / dt;  // k/s
+                double targetBlur = 0;
+                if (C.motionBlurOn) {
+                    double spinFactor = clampd((spinVel - 30.0) / 450.0, 0.0, 1.0);
+                    double morphFactor = (avgK > 0.03 && avgK < 0.97) ? clampd(morphVel / 2.2, 0.0, 1.0) : 0.0;
+                    targetBlur = C.moveBlur * MAX(spinFactor, morphFactor * 0.95);
+                }
+                // Loc muot gia tri blur de khong bi nhap nhay, va tat han ve 0 khi dung yen
+                if (targetBlur < 0.05 && csM0SmoothBlur < 0.15) csM0SmoothBlur = 0;
+                else csM0SmoothBlur = csM0SmoothBlur * 0.45 + targetBlur * 0.55;
+
+                if (avgK > 0.06 && !csM0Active) {
                     csM0Active = YES;
                     csM0Rot = ctr * step;
+                    csM0LastRot = csM0Rot;
                     csM0Anim = 0;
                     csM0FrontSlot = ctr;
-                } else if (avgK <= 0.08 && csM0Active) {
+                    for (int j = 0; j < capM; j++) {
+                        objc_setAssociatedObject(cards[order[j]], kStableSlot, @(j), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                    }
+                    csSetScrollEnabled(vc.view, NO);
+                } else if (avgK <= 0.06 && csM0Active) {
                     csM0Active = NO;
                     csM0Anim = 0;
                     csM0FrontSlot = -1;
+                    csM0SmoothBlur = 0;
+                    csSetScrollEnabled(vc.view, YES);
                 }
 
                 CSRingCfg cfg = csCfg();
@@ -1791,7 +2027,7 @@ static void csDeckLayout(UIViewController *vc) {
                         c.alpha = 0;
                         continue;
                     }
-                    double k = clampd((0.85 - ssc[i]) / 0.25, 0, 1);
+                    double k = clampd((0.92 - ssc[i]) / 0.30, 0, 1);
                     if (k < 0.001) { csRestore(c, sy[i]); continue; }
 
                     double phi = normDeg(j * step - csM0Rot);
@@ -1802,24 +2038,40 @@ static void csDeckLayout(UIViewController *vc) {
                     double f = scale * W / bw[i];
                     CGPoint scr = CGPointMake(sy[i].scr.x + (W / 2 + p.x - sy[i].scr.x) * k, sy[i].scr.y + p.y * k);
                     CGPoint pos = [c.superview convertPoint:scr fromView:nil];
+                    if (C.crispText) pos = csSnapPoint(pos);
+
+                    double effYaw = p.yaw * k;
                     CATransform3D t = CATransform3DIdentity;
-                    t.m34 = -1.0 / p.perspective;
-                    t = CATransform3DRotate(t, p.yaw * k, 0, 1, 0);
+                    if (!C.crispText || fabs(effYaw) > 0.008) {
+                        t.m34 = -1.0 / p.perspective;
+                        t = CATransform3DRotate(t, effYaw, 0, 1, 0);
+                    }
                     t = CATransform3DScale(t, f, f, 1);
                     if (!isfinite(pos.x) || !isfinite(pos.y) || !isfinite(f) || f <= 0.001 || !isfinite(p.z) || !isfinite(p.opacity)) continue;
+
+                    csApplyCrispness(c, 0, C.crispText);
+
+                    double distBlur = (C.style >= 1) ? C.blur * MIN(1.0, fabs(phi) / 110.0) * k : 0;
+                    csApplyCardMotionBlur(c, csM0SmoothBlur + distBlur);
+
                     CALayer *L = c.layer;
                     L.position = pos; L.transform = t;
                     L.opacity = (float)(sy[i].op * (1 + (p.opacity - 1) * k));
-                    double zz = (p.z + p.k * 20.0) * k;
+
+                    // Z-Order chuan 3D: the o giua (p.k = 1) luon nam tren cung, khong bao gio bi the phia sau de len
+                    double zz = (1000.0 + p.z + p.k * 160.0) * k;
                     L.zPosition = zz;
-                    L.doubleSided = cos(p.yaw * k) >= 0;
-                    csSetCircleMask(c, circ && C.snapCircle && k > 0.5);
+                    L.doubleSided = cos(effYaw) >= 0;
+
+                    csSetCircleMorph(c, circ && C.snapCircle, k, p.k);
                     csSetNeon(c, C.style == 3 && C.ringGlow && k > 0.05, p.k * k);
                     csStamp(c);
 
-                    double hw = (bw[i] * f) / 2.0, hh = (c.bounds.size.height * f) / 2.0;
+                    double hw = (bw[i] * f) / 2.0;
+                    double hh = circ ? hw : (c.bounds.size.height * f) / 2.0;
                     csM0Hits[j] = CGRectMake(scr.x - hw, scr.y - hh, hw * 2, hh * 2);
                     csM0Z[j] = zz;
+                    cardZ[i] = zz;
 
                     csLastApply = CACurrentMediaTime();
                     act[i] = YES; newX[i] = scr.x; newY[i] = scr.y;
@@ -1833,7 +2085,27 @@ static void csDeckLayout(UIViewController *vc) {
 
                 BOOL any = NO;
                 for (int i = 0; i < n; i++) if (act[i]) any = YES;
-                int hn = (int)MIN((NSUInteger)60, heads.count);
+
+                // Sap xep lai thu tu subview trong superview tu sau ra truoc de khong bao gio bi loi z-order
+                if (any) {
+                    int zOrd[40], zCnt = 0;
+                    for (int i = 0; i < n; i++) if (act[i]) zOrd[zCnt++] = i;
+                    for (int a = 1; a < zCnt; a++) {
+                        int key = zOrd[a], b = a - 1;
+                        while (b >= 0 && cardZ[zOrd[b]] > cardZ[key]) { zOrd[b + 1] = zOrd[b]; b--; }
+                        zOrd[b + 1] = key;
+                    }
+                    for (int a = 0; a < zCnt; a++) {
+                        UIView *cv = cards[zOrd[a]];
+                        if (cv.superview && cv.superview.subviews.lastObject != cv) {
+                            [cv.superview bringSubviewToFront:cv];
+                        }
+                    }
+                }
+
+                // An toan bo header/icon/nut "v Bubble" cua SpringBoard tren toan man hinh switcher
+                csSuppressSwitcherHeaders(vc.view, 0, any);
+                int hn = (int)MIN((NSUInteger)80, heads.count);
                 NSString *frontName = nil;
                 for (int q = 0; q < hn; q++) {
                     UIView *h = heads[q];
@@ -1849,7 +2121,7 @@ static void csDeckLayout(UIViewController *vc) {
                 if (any && frontIdx >= 0) {
                     double dia = ratio[frontIdx] * ssc[frontIdx] * W;
                     double hh = circ ? dia : dia * (UIScreen.mainScreen.bounds.size.height / W);
-                    double ly = C.namePos == 0 ? newY[frontIdx] - hh / 2 - 22 : (C.namePos == 1 ? newY[frontIdx] : newY[frontIdx] + hh / 2 + 22);
+                    double ly = C.namePos == 0 ? newY[frontIdx] - hh / 2 - 22 : (C.namePos == 1 ? newY[frontIdx] : newY[frontIdx] + hh / 2 + 26);
                     csShowName(frontName, CGPointMake(newX[frontIdx], ly));
                 } else if (csNameL) {
                     csNameL.hidden = YES;
@@ -1857,6 +2129,7 @@ static void csDeckLayout(UIViewController *vc) {
             }
         }
     } @catch (NSException *e) { csLog(@"deck layout exception: %@", e); }
+    [CATransaction commit];
     busy = NO;
 }
 
@@ -1917,7 +2190,7 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     });
 }
 
-#pragma mark - Hooks (iOS 16.3.1 SBFluidSwitcherViewController + SBDeckSwitcherViewController + Visibility)
+#pragma mark - Hooks
 
 %group FluidHook
 %hook SBFluidSwitcherViewController
@@ -1934,6 +2207,9 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     %orig;
     csHookVis = 0;
     csM0Active = NO;
+    csM0SmoothBlur = 0;
+    csSetScrollEnabled(((UIViewController *)self).view, YES);
+    csSuppressSwitcherHeaders(((UIViewController *)self).view, 0, NO);
     if (csNameL) csNameL.hidden = YES;
     csSyncOverlayImmediate();
 }
@@ -1964,6 +2240,9 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     %orig;
     csHookVis = 0;
     csM0Active = NO;
+    csM0SmoothBlur = 0;
+    csSetScrollEnabled(((UIViewController *)self).view, YES);
+    csSuppressSwitcherHeaders(((UIViewController *)self).view, 0, NO);
     if (csNameL) csNameL.hidden = YES;
     csSyncOverlayImmediate();
 }
@@ -1979,6 +2258,17 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
 %end
 %end
 
+%group ItemContainerHook
+%hook SBFluidSwitcherItemContainer
+- (void)layoutSubviews {
+    %orig;
+    if (csM0Active && csM0VC) {
+        csDeckLayout(csM0VC);
+    }
+}
+%end
+%end
+
 %ctor {
     if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
     csLines = [NSMutableArray new];
@@ -1986,7 +2276,7 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     csBubbles = [NSMutableArray new];
     csBoot = [NSDate date];
     loadCfg();
-    csLog(@"CircleSwitcher loaded in %@", NSBundle.mainBundle.bundleIdentifier);
+    csLog(@"CircleSwitcher v1.4.1 loaded in %@", NSBundle.mainBundle.bundleIdentifier);
 
     if ([NSFileManager.defaultManager fileExistsAtPath:CS_MARKER]) {
         csTripped = YES;
@@ -2007,6 +2297,7 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
 
     Class fluid = NSClassFromString(@"SBFluidSwitcherViewController");
     Class deck = NSClassFromString(@"SBDeckSwitcherViewController");
+    Class itemCont = NSClassFromString(@"SBFluidSwitcherItemContainer");
     if (fluid) {
         %init(FluidHook);
         if ([fluid instancesRespondToSelector:@selector(scrollViewDidScroll:)]) { %init(FluidScroll); }
@@ -2014,6 +2305,9 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     if (deck && deck != fluid && ![deck isSubclassOfClass:fluid]) {
         %init(DeckHook);
         if ([deck instancesRespondToSelector:@selector(scrollViewDidScroll:)]) { %init(DeckScroll); }
+    }
+    if (itemCont) {
+        %init(ItemContainerHook);
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{

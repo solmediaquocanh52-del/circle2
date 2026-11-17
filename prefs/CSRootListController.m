@@ -32,10 +32,42 @@ static double csNormDeg(double a) {
     return a - 180.0;
 }
 
+static UIColor *csColorFromHex(NSString *hex) {
+    if (!hex.length) return [UIColor systemBlueColor];
+    NSString *clean = [hex stringByReplacingOccurrencesOfString:@"#" withString:@""];
+    unsigned int rgb = 0;
+    [[NSScanner scannerWithString:clean] scanHexInt:&rgb];
+    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                           green:((rgb >> 8) & 0xFF) / 255.0
+                            blue:(rgb & 0xFF) / 255.0
+                           alpha:1.0];
+}
+
+static UIImage *csBadgeIcon(NSString *symbolName, UIColor *bgColor) {
+    if (!symbolName.length) return nil;
+    CGSize sz = CGSizeMake(29, 29);
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:sz format:fmt];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, 29, 29) cornerRadius:6.8];
+        [bgColor setFill];
+        [path fill];
+
+        UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:15.5 weight:UIImageSymbolWeightSemibold];
+        UIImage *sym = [[UIImage systemImageNamed:symbolName withConfiguration:cfg] imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+        if (sym) {
+            CGSize s = sym.size;
+            [sym drawInRect:CGRectMake((29 - s.width) / 2.0, (29 - s.height) / 2.0, s.width, s.height)];
+        }
+    }];
+}
+
 @interface CSPreviewView : UIView
 @property (nonatomic, strong) CAShapeLayer *glowRing;
 @property (nonatomic, strong) UIView *centerBubble;
 @property (nonatomic, strong) NSMutableArray<UIView *> *cards;
+@property (nonatomic, strong) UILabel *statusBadge;
 @property (nonatomic, assign) double rot;
 - (void)reloadPreview;
 @end
@@ -44,8 +76,10 @@ static double csNormDeg(double a) {
 
 - (instancetype)initWithFrame:(CGRect)f {
     if ((self = [super initWithFrame:f])) {
-        self.backgroundColor = [UIColor colorWithRed:0.08 green:0.09 blue:0.13 alpha:1.0];
+        self.backgroundColor = [UIColor colorWithRed:0.07 green:0.08 blue:0.12 alpha:1.0];
         self.layer.cornerRadius = 18;
+        self.layer.borderWidth = 1;
+        self.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.12].CGColor;
         self.clipsToBounds = YES;
 
         _glowRing = [CAShapeLayer layer];
@@ -60,9 +94,19 @@ static double csNormDeg(double a) {
         [self addSubview:_centerBubble];
 
         _cards = [NSMutableArray array];
+
+        _statusBadge = [[UILabel alloc] initWithFrame:CGRectMake(12, 10, 175, 22)];
+        _statusBadge.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+        _statusBadge.textColor = [UIColor colorWithRed:0.45 green:0.78 blue:1.0 alpha:1.0];
+        _statusBadge.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
+        _statusBadge.layer.cornerRadius = 11;
+        _statusBadge.clipsToBounds = YES;
+        _statusBadge.textAlignment = NSTextAlignmentCenter;
+        [self addSubview:_statusBadge];
+
         UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(12, f.size.height - 24, f.size.width - 24, 18)];
         hint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-        hint.text = @"Vuốt trái / phải để xem trước vòng 3D vô tận";
+        hint.text = @"Vuốt trái / phải để xoay thử vòng 3D vô tận";
         hint.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
         hint.textColor = [UIColor colorWithWhite:1 alpha:0.55];
         hint.textAlignment = NSTextAlignmentCenter;
@@ -86,10 +130,12 @@ static double csNormDeg(double a) {
 }
 
 - (void)reloadPreview {
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     CFPreferencesAppSynchronize(CS_DOMAIN);
     CSRingCfg cfg;
-    cfg.radius = csPrefD(CFSTR("radius"), 120) * 0.62;
-    cfg.tilt = csPrefD(CFSTR("tilt"), 35);
+    cfg.radius = csPrefD(CFSTR("radius"), 125) * 0.62;
+    cfg.tilt = csPrefD(CFSTR("tilt"), 32);
     cfg.cam = csPrefD(CFSTR("cam"), 22);
     cfg.size = csPrefD(CFSTR("size"), 100) * 0.62;
     cfg.off = csPrefD(CFSTR("off"), 0) * 0.5;
@@ -101,14 +147,18 @@ static double csNormDeg(double a) {
     cfg.centerSize = csPrefD(CFSTR("centerSize"), 100);
     cfg.gap = csPrefD(CFSTR("gap"), 100);
 
+    NSArray *styleNames = @[@"Vòng phẳng", @"Vòng tròn 3D", @"Thẻ 3D", @"Dải Neon"];
+    NSString *stName = (cfg.style >= 0 && cfg.style < 4) ? styleNames[cfg.style] : @"Vòng tròn 3D";
+    self.statusBadge.text = [NSString stringWithFormat:@"%@ • %d app", stName, cfg.count];
+
     BOOL ringGlow = csPrefB(CFSTR("ringGlow"), YES);
-    double glowHue = csPrefD(CFSTR("glowHue"), 225);
-    double glowAmt = csPrefD(CFSTR("glowAmt"), 70);
+    double glowHue = csPrefD(CFSTR("glowHue"), 215);
+    double glowAmt = csPrefD(CFSTR("glowAmt"), 75);
     double cardCorner = csPrefD(CFSTR("cardCorner"), 28);
 
     while ((int)self.cards.count < cfg.count) {
         UIView *v = [UIView new];
-        v.layer.borderWidth = 1.2;
+        v.layer.borderWidth = 1.5;
         [self addSubview:v];
         [self.cards addObject:v];
     }
@@ -118,8 +168,8 @@ static double csNormDeg(double a) {
     }
 
     CGFloat W = self.bounds.size.width > 10 ? self.bounds.size.width : 350;
-    CGFloat H = self.bounds.size.height > 10 ? self.bounds.size.height : 210;
-    CGFloat cx = W / 2.0, cy = H * 0.48;
+    CGFloat H = self.bounds.size.height > 10 ? self.bounds.size.height : 206;
+    CGFloat cx = W / 2.0, cy = H * 0.50;
     double step = 360.0 / cfg.count;
     BOOL circ = (cfg.style <= 1);
 
@@ -186,7 +236,7 @@ static double csNormDeg(double a) {
         }
 
         UIColor *g = [UIColor colorWithHue:fmod(glowHue, 360.0) / 360.0 saturation:0.55 brightness:1 alpha:1];
-        card.layer.borderColor = (cfg.style == 3 ? g : [UIColor colorWithWhite:1 alpha:0.6]).CGColor;
+        card.layer.borderColor = (cfg.style == 3 || circ ? g : [UIColor colorWithWhite:1 alpha:0.6]).CGColor;
         if (ringGlow && (circ || cfg.style == 3)) {
             card.layer.shadowColor = g.CGColor;
             card.layer.shadowOffset = CGSizeZero;
@@ -203,6 +253,8 @@ static double csNormDeg(double a) {
         return a.layer.zPosition < b.layer.zPosition ? NSOrderedAscending : NSOrderedDescending;
     }];
     for (UIView *c in order) [self bringSubviewToFront:c];
+    [self bringSubviewToFront:self.statusBadge];
+    [CATransaction commit];
 }
 @end
 
@@ -213,6 +265,14 @@ static double csNormDeg(double a) {
 - (NSArray *)specifiers {
     if (!_specifiers) {
         _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
+        for (PSSpecifier *spec in _specifiers) {
+            NSString *sym = [spec propertyForKey:@"sfSymbol"];
+            if (sym.length) {
+                NSString *hex = [spec propertyForKey:@"sfColor"];
+                UIImage *badge = csBadgeIcon(sym, csColorFromHex(hex));
+                if (badge) [spec setProperty:badge forKey:@"iconImage"];
+            }
+        }
     }
     return _specifiers;
 }
@@ -223,10 +283,55 @@ static double csNormDeg(double a) {
                                                                               style:UIBarButtonItemStyleDone
                                                                              target:self
                                                                              action:@selector(respringAction)];
-    UIView *headerWrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 224)];
-    _preview = [[CSPreviewView alloc] initWithFrame:CGRectMake(16, 10, self.view.bounds.size.width - 32, 204)];
+
+    CGFloat W = self.view.bounds.size.width;
+    UIView *headerWrap = [[UIView alloc] initWithFrame:CGRectMake(0, 0, W, 294)];
+
+    UIView *banner = [[UIView alloc] initWithFrame:CGRectMake(16, 10, W - 32, 62)];
+    banner.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    banner.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+    banner.layer.cornerRadius = 16;
+
+    UIImageView *logo = [[UIImageView alloc] initWithFrame:CGRectMake(12, 11, 40, 40)];
+    logo.backgroundColor = [UIColor colorWithRed:0.10 green:0.14 blue:0.26 alpha:1.0];
+    logo.layer.cornerRadius = 11;
+    logo.contentMode = UIViewContentModeCenter;
+    logo.image = [[UIImage systemImageNamed:@"circle.hexagongrid.fill"
+                          withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:20 weight:UIImageSymbolWeightBold]]
+                  imageWithTintColor:[UIColor colorWithRed:0.42 green:0.65 blue:1.0 alpha:1.0]
+                  renderingMode:UIImageRenderingModeAlwaysOriginal];
+    [banner addSubview:logo];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(62, 11, W - 180, 22)];
+    title.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    title.text = @"CircleSwitcher";
+    title.font = [UIFont systemFontOfSize:17 weight:UIFontWeightBold];
+    [banner addSubview:title];
+
+    UILabel *sub = [[UILabel alloc] initWithFrame:CGRectMake(62, 33, W - 110, 17)];
+    sub.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    sub.text = @"Morph vòng tròn • Motion blur • Siêu mượt @3x";
+    sub.font = [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
+    sub.textColor = [UIColor secondaryLabelColor];
+    [banner addSubview:sub];
+
+    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(W - 122, 12, 78, 20)];
+    ver.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+    ver.text = @"v1.4.1";
+    ver.font = [UIFont systemFontOfSize:10 weight:UIFontWeightBold];
+    ver.textColor = [UIColor systemBlueColor];
+    ver.backgroundColor = [[UIColor systemBlueColor] colorWithAlphaComponent:0.14];
+    ver.layer.cornerRadius = 10;
+    ver.clipsToBounds = YES;
+    ver.textAlignment = NSTextAlignmentCenter;
+    [banner addSubview:ver];
+
+    [headerWrap addSubview:banner];
+
+    _preview = [[CSPreviewView alloc] initWithFrame:CGRectMake(16, 80, W - 32, 204)];
     _preview.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [headerWrap addSubview:_preview];
+
     self.tableView.tableHeaderView = headerWrap;
 }
 
@@ -256,12 +361,12 @@ static double csNormDeg(double a) {
 
 - (void)resetDefaultsAction {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"Đặt lại mặc định?"
-                                                                message:@"Khôi phục toàn bộ thông số 3D về giá trị gốc."
+                                                                message:@"Khôi phục toàn bộ thông số vòng tròn 3D, Motion blur và độ nét về giá trị gốc."
                                                          preferredStyle:UIAlertControllerStyleAlert];
     [ac addAction:[UIAlertAction actionWithTitle:@"Hủy" style:UIAlertActionStyleCancel handler:nil]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Đặt lại" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
         NSArray *keys = @[
-            @"enabled", @"mode", @"style", @"count", @"radius", @"tilt", @"cam", @"size",
+            @"enabled", @"mode", @"style", @"crispText", @"motionBlurOn", @"count", @"radius", @"tilt", @"cam", @"size",
             @"iconSize", @"centerSize", @"gap", @"off", @"cardCorner", @"snapCircle",
             @"ringGlow", @"glowHue", @"glowAmt", @"blur", @"moveBlur", @"dim", @"bgBlur",
             @"namePos", @"nameIcon", @"namePill", @"icon", @"onlyFront", @"ram",
