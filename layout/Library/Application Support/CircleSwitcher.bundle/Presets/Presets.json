@@ -1,0 +1,88 @@
+{
+  "presets": [
+    {
+      "id": "ios26_glass",
+      "name": "Kính lỏng iOS 26 (Mặc định)",
+      "values": {
+        "style": 1,
+        "snapCircle": true,
+        "glassOverlay": true,
+        "metalGlass": true,
+        "glassRefract": 65,
+        "glassSpecular": 85,
+        "glassDispersion": 40,
+        "glassTintAlpha": 18,
+        "ringGlow": true,
+        "glowHue": 215,
+        "glowAmt": 72,
+        "blur": 0.0,
+        "motionBlurOn": false,
+        "springStiffness": 100,
+        "velTilt": true
+      }
+    },
+    {
+      "id": "crystal_clear",
+      "name": "Pha lê siêu trong",
+      "values": {
+        "style": 1,
+        "snapCircle": true,
+        "glassOverlay": true,
+        "metalGlass": true,
+        "glassRefract": 85,
+        "glassSpecular": 105,
+        "glassDispersion": 65,
+        "glassTintAlpha": 8,
+        "ringGlow": true,
+        "glowHue": 195,
+        "glowAmt": 55,
+        "blur": 0.0,
+        "motionBlurOn": false,
+        "springStiffness": 115,
+        "velTilt": true
+      }
+    },
+    {
+      "id": "frosted_minimal",
+      "name": "Kính mờ tối giản Apple",
+      "values": {
+        "style": 1,
+        "snapCircle": true,
+        "glassOverlay": true,
+        "metalGlass": true,
+        "glassRefract": 35,
+        "glassSpecular": 55,
+        "glassDispersion": 10,
+        "glassTintAlpha": 30,
+        "ringGlow": false,
+        "glowHue": 210,
+        "glowAmt": 30,
+        "blur": 0.0,
+        "motionBlurOn": false,
+        "springStiffness": 95,
+        "velTilt": false
+      }
+    },
+    {
+      "id": "neon_cyber",
+      "name": "Vòng tròn Neon 3D",
+      "values": {
+        "style": 1,
+        "snapCircle": true,
+        "glassOverlay": true,
+        "metalGlass": true,
+        "glassRefract": 75,
+        "glassSpecular": 120,
+        "glassDispersion": 85,
+        "glassTintAlpha": 24,
+        "ringGlow": true,
+        "glowHue": 275,
+        "glowAmt": 95,
+        "blur": 0.0,
+        "motionBlurOn": false,
+        "springStiffness": 125,
+        "velTilt": true
+      }
+    }
+  ]
+}

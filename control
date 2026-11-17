@@ -1,9 +1,9 @@
 Package: com.vn.circleswitcher
 Name: CircleSwitcher
-Version: 1.5.0
-Architecture: iphoneos-arm64
-Description: Bien app thanh hinh tron kinh 3D cuon vo tan, vat ly lo xo muot ma, asset @3x & motion blur dong (iOS 15 - 16 Rootless)
+Version: 2.0.0
+Architecture: iphoneos-arm
+Description: Bien app thanh thau kinh tron 3D Liquid Glass cuon vo tan, GPU Metal Shader, Preset 1 cham & vat ly lo xo 120Hz (iOS 14 - 18+ Rootful & Rootless)
 Maintainer: you
 Author: you
 Section: Tweaks
-Depends: mobilesubstrate, preferenceloader, firmware (>= 15.0)
+Depends: mobilesubstrate, preferenceloader, firmware (>= 14.0)

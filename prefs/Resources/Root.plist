@@ -8,9 +8,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Viền kính Liquid Glass @3x &amp; bộ giải vật lý lò xo 120Hz giúp từng vòng tròn ứng dụng nổi khối và dừng êm tự nhiên.</string>
+			<string>Biến từng ứng dụng trong trình đa nhiệm thành thấu kính tròn 3D siêu nét trên iOS 14 đến iOS 18+ (Rootful &amp; Rootless).</string>
 			<key>label</key>
-			<string>Chung &amp; Chất lượng hiển thị @3x</string>
+			<string>Chung &amp; Preset 1 Chạm</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -29,34 +29,14 @@
 			<string>power</string>
 		</dict>
 		<dict>
+			<key>action</key>
+			<string>selectPresetAction</string>
 			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>snapCircle</string>
+			<string>PSButtonCell</string>
 			<key>label</key>
-			<string>Biến thẻ thành hình tròn (Morph)</string>
+			<string>Chọn Preset Thấu Kính 1 Chạm</string>
 			<key>sfColor</key>
 			<string>#007AFF</string>
-			<key>sfSymbol</key>
-			<string>circle.circle.fill</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>glassOverlay</string>
-			<key>label</key>
-			<string>Viền kính phản chiếu 3D (@3x)</string>
-			<key>sfColor</key>
-			<string>#32ADE6</string>
 			<key>sfSymbol</key>
 			<string>sparkles.rectangle.stack.fill</string>
 		</dict>
@@ -68,13 +48,13 @@
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
-			<string>motionBlurOn</string>
+			<string>snapCircle</string>
 			<key>label</key>
-			<string>Motion Blur khi vuốt &amp; xoay</string>
+			<string>Biến thẻ thành hình tròn 1:1 (Morph)</string>
 			<key>sfColor</key>
-			<string>#5AC8FA</string>
+			<string>#32ADE6</string>
 			<key>sfSymbol</key>
-			<string>wind</string>
+			<string>circle.circle.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -86,7 +66,7 @@
 			<key>key</key>
 			<string>crispText</string>
 			<key>label</key>
-			<string>Siêu nét chữ @3x (Khử mờ)</string>
+			<string>Siêu nét chữ @3x (Khử mờ thẻ)</string>
 			<key>sfColor</key>
 			<string>#5856D6</string>
 			<key>sfSymbol</key>
@@ -137,8 +117,136 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Điều chỉnh trực tiếp độ cong khúc xạ mép kính, độ bóng phản quang và tán sắc ánh sáng thời gian thực.</string>
 			<key>label</key>
-			<string>Vật lý lò xo &amp; Độ mượt chuyển động</string>
+			<string>Lớp Kính Liquid Glass Tùy Chỉnh (GPU Metal)</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>glassOverlay</string>
+			<key>label</key>
+			<string>Bật lớp kính bao quanh app</string>
+			<key>sfColor</key>
+			<string>#32ADE6</string>
+			<key>sfSymbol</key>
+			<string>drop.triangle.fill</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>metalGlass</string>
+			<key>label</key>
+			<string>Shader GPU Metal thời gian thực</string>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>cpu.fill</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>65</integer>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>glassRefract</string>
+			<key>label</key>
+			<string>Độ cong khúc xạ mép kính (%)</string>
+			<key>max</key>
+			<integer>100</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#5AC8FA</string>
+			<key>sfSymbol</key>
+			<string>circle.dashed</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>85</integer>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>glassSpecular</string>
+			<key>label</key>
+			<string>Độ bóng viền phản quang (%)</string>
+			<key>max</key>
+			<integer>150</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#FFCC00</string>
+			<key>sfSymbol</key>
+			<string>sun.max.fill</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>40</integer>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>glassDispersion</string>
+			<key>label</key>
+			<string>Tán sắc ánh sáng viền (%)</string>
+			<key>max</key>
+			<integer>100</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#AF52DE</string>
+			<key>sfSymbol</key>
+			<string>prism</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>18</integer>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>glassTintAlpha</string>
+			<key>label</key>
+			<string>Độ đậm ánh màu kính (%)</string>
+			<key>max</key>
+			<integer>80</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#FF2D55</string>
+			<key>sfSymbol</key>
+			<string>paintpalette.fill</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Vật lý lò xo 120Hz &amp; Độ mượt</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -256,7 +364,7 @@
 			<key>validTitles</key>
 			<array>
 				<string>Phẳng</string>
-				<string>Vòng tròn</string>
+				<string>Thấu kính</string>
 				<string>Thẻ</string>
 				<string>Neon</string>
 			</array>
@@ -492,51 +600,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Hiệu ứng Hào quang &amp; Motion Blur</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>default</key>
-			<real>4.2</real>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>moveBlur</string>
-			<key>label</key>
-			<string>Cường độ Motion Blur</string>
-			<key>max</key>
-			<integer>10</integer>
-			<key>min</key>
-			<integer>0</integer>
-			<key>sfColor</key>
-			<string>#32ADE6</string>
-			<key>sfSymbol</key>
-			<string>motion.badge.plus</string>
-			<key>showValue</key>
-			<true/>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>default</key>
-			<real>1.5</real>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>blur</string>
-			<key>label</key>
-			<string>Làm mờ app ở xa</string>
-			<key>max</key>
-			<integer>12</integer>
-			<key>min</key>
-			<integer>0</integer>
-			<key>sfColor</key>
-			<string>#5AC8FA</string>
-			<key>sfSymbol</key>
-			<string>drop.fill</string>
-			<key>showValue</key>
-			<true/>
+			<string>Hào quang &amp; Làm mờ</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -564,7 +628,7 @@
 			<key>key</key>
 			<string>glowHue</string>
 			<key>label</key>
-			<string>Màu hào quang (Hue)</string>
+			<string>Màu hào quang &amp; Kính (Hue)</string>
 			<key>max</key>
 			<integer>360</integer>
 			<key>min</key>
@@ -594,7 +658,67 @@
 			<key>sfColor</key>
 			<string>#FF9500</string>
 			<key>sfSymbol</key>
-			<string>sun.max.fill</string>
+			<string>sun.min.fill</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>motionBlurOn</string>
+			<key>label</key>
+			<string>Motion Blur khi vuốt (Tắt = Nét nhất)</string>
+			<key>sfColor</key>
+			<string>#5AC8FA</string>
+			<key>sfSymbol</key>
+			<string>wind</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<real>2.5</real>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>moveBlur</string>
+			<key>label</key>
+			<string>Cường độ Motion Blur</string>
+			<key>max</key>
+			<integer>10</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#32ADE6</string>
+			<key>sfSymbol</key>
+			<string>motion.badge.plus</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<real>0.0</real>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>blur</string>
+			<key>label</key>
+			<string>Làm mờ app ở xa</string>
+			<key>max</key>
+			<integer>12</integer>
+			<key>min</key>
+			<integer>0</integer>
+			<key>sfColor</key>
+			<string>#5AC8FA</string>
+			<key>sfSymbol</key>
+			<string>drop.fill</string>
 			<key>showValue</key>
 			<true/>
 		</dict>
@@ -720,7 +844,7 @@
 			<key>key</key>
 			<string>nameIcon</string>
 			<key>label</key>
-			<string>Icon nhỏ cạnh tên (Mode 2)</string>
+			<string>Icon nhỏ cạnh tên</string>
 			<key>sfColor</key>
 			<string>#5AC8FA</string>
 			<key>sfSymbol</key>
@@ -870,7 +994,19 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Hệ thống &amp; Khôi phục</string>
+			<string>Thông tin &amp; Khôi phục</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>viewChangelogAction</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>label</key>
+			<string>Nhật ký cập nhật v2.0.0 (Changelog)</string>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>list.bullet.rectangle.portrait.fill</string>
 		</dict>
 		<dict>
 			<key>cell</key>

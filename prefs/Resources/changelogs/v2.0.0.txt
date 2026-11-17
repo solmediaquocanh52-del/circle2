@@ -1,0 +1,7 @@
+CircleSwitcher v2.0.0 — Liquid Glass Edition (iOS 14 -> 18+)
+- Fix triệt để lỗi thẻ bị bóp thành sọc dọc mỏng: Ép khung nội dung SBAppSwitcherPageView về tỷ lệ vuông 1:1 và cắt bo tròn phần cứng ngay trên lớp _UIPortalView.
+- Fix lỗi icon ứng dụng tách rời khỏi vòng tròn: Ẩn hoàn toàn header/icon container gốc của iOS khi vòng tròn kích hoạt.
+- Fix lỗi chạm nhầm mở thanh Shelf (+): Khóa quyền nhận chạm trên từng vòng tròn (chạm giữa để mở app, chạm hai bên để xoay mượt).
+- Fix lỗi mờ chữ trên thẻ app: Tắt mặc định Motion Blur, khóa contentsScale = @3x và shouldRasterize = NO.
+- Tích hợp GPU Metal Liquid Glass Shader biên dịch trực tiếp trên máy + 4 Preset 1 chạm.
+- Hỗ trợ đồng thời Rootful (iOS 14) & Rootless (iOS 15 - 18+) trên mọi dòng iPhone & iPad.

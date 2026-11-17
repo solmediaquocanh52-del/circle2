@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <Metal/Metal.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -14,7 +15,23 @@
 #define CS_RESPRING_NOTE CFSTR("com.vn.circleswitcher/respring")
 #define CS_RELOAD_NOTE CFSTR("com.vn.circleswitcher/reload")
 
-#pragma mark - High-DPI Asset Loader (@3x / @2x Rootless + Rootful)
+#pragma mark - Runtime Rootful / Rootless Bundle & Asset Resolver
+
+static NSBundle *csResourceBundle(void) {
+    static NSBundle *bundle;
+    static BOOL checked;
+    if (checked) return bundle;
+    checked = YES;
+    NSArray<NSString *> *paths = @[
+        @"/var/jb/Library/Application Support/CircleSwitcher.bundle",
+        @"/Library/Application Support/CircleSwitcher.bundle"
+    ];
+    for (NSString *p in paths) {
+        NSBundle *b = [NSBundle bundleWithPath:p];
+        if (b) { bundle = b; break; }
+    }
+    return bundle;
+}
 
 static UIImage *csLoadAsset(NSString *baseName, BOOL templateMode) {
     static NSMutableDictionary<NSString *, UIImage *> *cache;
@@ -23,51 +40,37 @@ static UIImage *csLoadAsset(NSString *baseName, BOOL templateMode) {
     UIImage *hit = cache[cacheKey];
     if (hit) return hit;
 
-    NSArray<NSString *> *dirs = @[
-        @"/var/jb/Library/Application Support/CircleSwitcher",
-        @"/Library/Application Support/CircleSwitcher"
-    ];
-    NSArray<NSString *> *suffixes = @[@"@3x.png", @"@2x.png", @".png"];
-    NSArray<NSNumber *> *scales = @[@3.0, @2.0, @1.0];
-
     UIImage *loaded = nil;
-    for (NSString *dir in dirs) {
-        for (NSUInteger i = 0; i < suffixes.count; i++) {
-            NSString *full = [dir stringByAppendingPathComponent:[baseName stringByAppendingString:suffixes[i]]];
-            UIImage *raw = [UIImage imageWithContentsOfFile:full];
-            if (raw && raw.CGImage) {
-                loaded = [UIImage imageWithCGImage:raw.CGImage scale:scales[i].doubleValue orientation:UIImageOrientationUp];
-                break;
+    NSBundle *b = csResourceBundle();
+    if (b) {
+        loaded = [UIImage imageNamed:baseName inBundle:b compatibleWithTraitCollection:nil];
+    }
+    if (!loaded) {
+        NSArray<NSString *> *dirs = @[
+            @"/var/jb/Library/Application Support/CircleSwitcher.bundle",
+            @"/Library/Application Support/CircleSwitcher.bundle",
+            @"/var/jb/Library/Application Support/CircleSwitcher",
+            @"/Library/Application Support/CircleSwitcher"
+        ];
+        NSArray<NSString *> *suffixes = @[@"@3x.png", @"@2x.png", @".png"];
+        NSArray<NSNumber *> *scales = @[@3.0, @2.0, @1.0];
+        for (NSString *dir in dirs) {
+            for (NSUInteger i = 0; i < suffixes.count; i++) {
+                NSString *full = [dir stringByAppendingPathComponent:[baseName stringByAppendingString:suffixes[i]]];
+                UIImage *raw = [UIImage imageWithContentsOfFile:full];
+                if (raw && raw.CGImage) {
+                    loaded = [UIImage imageWithCGImage:raw.CGImage scale:scales[i].doubleValue orientation:UIImageOrientationUp];
+                    break;
+                }
             }
+            if (loaded) break;
         }
-        if (loaded) break;
     }
     if (loaded) {
-        if (templateMode) {
-            loaded = [loaded imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-        }
+        if (templateMode) loaded = [loaded imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
         cache[cacheKey] = loaded;
     }
     return loaded;
-}
-
-#pragma mark - Zero-Allocation CGPath Cache
-
-static CGPathRef csCachedRoundedPath(CGFloat w, CGFloat h, CGFloat cr) {
-    static NSMutableDictionary<NSString *, id> *pathCache;
-    if (!pathCache) pathCache = [NSMutableDictionary new];
-    int qw = (int)llround(w * 2.0);
-    int qh = (int)llround(h * 2.0);
-    int qr = (int)llround(cr * 2.0);
-    NSString *key = [NSString stringWithFormat:@"%d_%d_%d", qw, qh, qr];
-    id existing = pathCache[key];
-    if (existing) return (__bridge CGPathRef)existing;
-
-    if (pathCache.count > 260) [pathCache removeAllObjects];
-    UIBezierPath *bp = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, qw / 2.0, qh / 2.0) cornerRadius:qr / 2.0];
-    CGPathRef cg = bp.CGPath;
-    if (cg) pathCache[key] = (__bridge id)cg;
-    return cg;
 }
 
 #pragma mark - Preferences
@@ -94,11 +97,12 @@ static double prefDouble(CFStringRef key, double def) {
 typedef struct {
     BOOL enabled, icon, onlyFront, nameIcon, ram, inertia, haptic, dots, bubOn, keepPinned, debug;
     BOOL ringGlow, namePill, snapCircle, chevron, crispText, motionBlurOn;
-    BOOL glassOverlay, velTilt;
+    BOOL glassOverlay, metalGlass, velTilt;
     int count, namePos, mode, style;
     double radius, tilt, cam, blur, size, off, bubSize;
     double iconSize, centerSize, dim, bgBlur, glowHue;
     double gap, cardCorner, glowAmt, moveBlur, openSpeed, springStiffness;
+    double glassRefract, glassSpecular, glassDispersion, glassTintAlpha;
     BOOL openAnim;
 } CSCfg;
 static CSCfg C;
@@ -119,8 +123,10 @@ static void loadCfg(void) {
     C.keepPinned = prefBool(CFSTR("keepPinned"), YES);
     C.debug = prefBool(CFSTR("debug"), NO);
     C.crispText = prefBool(CFSTR("crispText"), YES);
-    C.motionBlurOn = prefBool(CFSTR("motionBlurOn"), YES);
+    // Disabled by default so app text inside switcher cards stays razor-sharp
+    C.motionBlurOn = prefBool(CFSTR("motionBlurOn"), NO);
     C.glassOverlay = prefBool(CFSTR("glassOverlay"), YES);
+    C.metalGlass = prefBool(CFSTR("metalGlass"), YES);
     C.velTilt = prefBool(CFSTR("velTilt"), YES);
     C.count = (int)lround(prefDouble(CFSTR("count"), 8));
     if (C.count < 3) C.count = 3;
@@ -129,7 +135,7 @@ static void loadCfg(void) {
     C.radius = prefDouble(CFSTR("radius"), 125);
     C.tilt = prefDouble(CFSTR("tilt"), 32);
     C.cam = prefDouble(CFSTR("cam"), 22);
-    C.blur = prefDouble(CFSTR("blur"), 1.5);
+    C.blur = prefDouble(CFSTR("blur"), 0.0);
     C.size = prefDouble(CFSTR("size"), 100);
     C.off = prefDouble(CFSTR("off"), 0);
     C.bubSize = prefDouble(CFSTR("bubSize"), 56);
@@ -147,17 +153,22 @@ static void loadCfg(void) {
     C.gap = prefDouble(CFSTR("gap"), 100);
     C.cardCorner = prefDouble(CFSTR("cardCorner"), 28);
     C.glowAmt = prefDouble(CFSTR("glowAmt"), 75);
-    C.moveBlur = prefDouble(CFSTR("moveBlur"), 4.2);
+    C.moveBlur = prefDouble(CFSTR("moveBlur"), 2.5);
     C.openSpeed = prefDouble(CFSTR("openSpeed"), 100);
     C.springStiffness = prefDouble(CFSTR("springStiffness"), 100);
+    C.glassRefract = prefDouble(CFSTR("glassRefract"), 65);
+    C.glassSpecular = prefDouble(CFSTR("glassSpecular"), 85);
+    C.glassDispersion = prefDouble(CFSTR("glassDispersion"), 40);
+    C.glassTintAlpha = prefDouble(CFSTR("glassTintAlpha"), 18);
     C.openAnim = prefBool(CFSTR("openAnim"), YES);
 }
 
-static CSRingCfg csCfgWithBank(double velBankRad) {
+static CSRingCfg csCfgWithBank(double velBankRad, double W, double H) {
     CSRingCfg c;
     c.radius = C.radius; c.tilt = C.tilt; c.cam = C.cam; c.size = C.size; c.off = C.off; c.count = C.count;
     c.style = C.style; c.iconSize = C.iconSize; c.centerSize = C.centerSize; c.gap = C.gap;
     c.velBank = C.velTilt ? velBankRad : 0.0;
+    c.screenW = W; c.screenH = H;
     return c;
 }
 
@@ -171,7 +182,7 @@ static void setPinList(NSArray<NSString *> *a) {
     CFPreferencesAppSynchronize(CS_DOMAIN);
 }
 
-#pragma mark - Logging
+#pragma mark - Logging & Runtime Utilities
 
 static NSMutableArray<NSString *> *csLines;
 
@@ -197,8 +208,6 @@ static void csLog(NSString *fmt, ...) {
         [h closeFile];
     } @catch (NSException *e) {}
 }
-
-#pragma mark - Runtime & High-FPS DisplayLink (Zero available-macro)
 
 static id send0(id o, NSString *s) {
     SEL sel = NSSelectorFromString(s);
@@ -229,7 +238,6 @@ static inline CGPoint csSnapPoint(CGPoint p) {
     return CGPointMake(csSnapPx(p.x), csSnapPx(p.y));
 }
 
-// ABI-compatible HFA struct matching CAFrameRateRange without triggering ___isOSVersionAtLeast
 typedef struct {
     float minimum;
     float maximum;
@@ -245,7 +253,211 @@ static void csConfigureHighFPSLink(CADisplayLink *link) {
     }
 }
 
-#pragma mark - App Info
+static UIEdgeInsets csSafeInsets(void) {
+    @try {
+        for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
+            if ([s isKindOfClass:UIWindowScene.class]) {
+                UIWindow *w = ((UIWindowScene *)s).windows.firstObject;
+                if (w) return w.safeAreaInsets;
+            }
+        }
+    } @catch (NSException *e) {}
+    return UIEdgeInsetsMake(44, 0, 34, 0);
+}
+
+#pragma mark - Metal GPU Liquid Glass Renderer (Runtime Compiled Shader)
+
+typedef struct {
+    float tintR, tintG, tintB, tintA;
+    float refraction;
+    float specular;
+    float dispersion;
+    float focusK;
+    float phase;
+    float pad0, pad1, pad2;
+} CSGlassUniforms;
+
+static id<MTLDevice> csSharedMTLDevice(void) {
+    static id<MTLDevice> dev;
+    static BOOL tried;
+    if (!tried) {
+        tried = YES;
+        @try { dev = MTLCreateSystemDefaultDevice(); } @catch (NSException *e) { dev = nil; }
+    }
+    return dev;
+}
+
+static id<MTLRenderPipelineState> csSharedGlassPipeline(void) {
+    static id<MTLRenderPipelineState> pso;
+    static BOOL tried;
+    if (tried) return pso;
+    tried = YES;
+    id<MTLDevice> dev = csSharedMTLDevice();
+    if (!dev) return nil;
+
+    NSString *src = nil;
+    NSBundle *b = csResourceBundle();
+    if (b) {
+        NSString *p = [b pathForResource:@"LiquidGlass" ofType:@"metal" inDirectory:@"Shaders"];
+        if (p) src = [NSString stringWithContentsOfFile:p encoding:NSUTF8StringEncoding error:nil];
+    }
+    if (!src.length) {
+        src = @"#include <metal_stdlib>\nusing namespace metal;\n"
+               "struct U { float4 tint; float refract; float spec; float disp; float focusK; float phase; };\n"
+               "struct V { float4 pos [[position]]; float2 uv; };\n"
+               "vertex V csGlassVertex(uint vid [[vertex_id]]) {\n"
+               "  float2 p[4] = {float2(-1,-1),float2(1,-1),float2(-1,1),float2(1,1)};\n"
+               "  float2 u[4] = {float2(0,1),float2(1,1),float2(0,0),float2(1,0)};\n"
+               "  V o; o.pos = float4(p[vid],0,1); o.uv = u[vid]; return o;\n"
+               "}\n"
+               "fragment float4 csGlassFragment(V in [[stage_in]], constant U &u [[buffer(0)]]) {\n"
+               "  float2 p = in.uv * 2.0 - 1.0; float r = length(p); if (r > 1.0) return float4(0.0);\n"
+               "  float edge = smoothstep(1.0, 0.965, r);\n"
+               "  float fres = pow(clamp(r, 0.0, 1.0), mix(3.4, 1.85, clamp(u.refract, 0.0, 1.0)));\n"
+               "  float rim = exp(-pow((r - 0.955) / 0.026, 2.0));\n"
+               "  float th = atan2(p.y, p.x);\n"
+               "  float l1 = exp(-pow(atan2(sin(th + 2.356 - u.phase), cos(th + 2.356 - u.phase)) / 0.68, 2.0));\n"
+               "  float l2 = exp(-pow(atan2(sin(th - 0.785 + u.phase * 0.5), cos(th - 0.785 + u.phase * 0.5)) / 0.85, 2.0)) * 0.52;\n"
+               "  float cr = exp(-pow((r - 0.84) / 0.09, 2.0)) * l1 * 0.42;\n"
+               "  float ds = u.disp * fres * 0.28;\n"
+               "  float3 sRGB = float3(0.92 + ds * sin(th * 2.0 + u.phase), 0.96, 1.0 + ds * cos(th * 2.0 - u.phase));\n"
+               "  float sp = (rim * (0.28 + 0.78 * max(l1, l2)) + cr) * u.spec * (0.75 + 0.35 * u.focusK);\n"
+               "  float bd = fres * u.tint.a * 0.48;\n"
+               "  float3 rgb = mix(u.tint.rgb, sRGB, clamp(sp / max(sp + bd, 0.001), 0.0, 1.0));\n"
+               "  float al = clamp((sp + bd) * edge, 0.0, 0.92);\n"
+               "  return float4(rgb * al, al);\n"
+               "}\n";
+    }
+    @try {
+        NSError *err = nil;
+        id<MTLLibrary> lib = [dev newLibraryWithSource:src options:nil error:&err];
+        if (!lib) return nil;
+        id<MTLFunction> vf = [lib newFunctionWithName:@"csGlassVertex"];
+        id<MTLFunction> ff = [lib newFunctionWithName:@"csGlassFragment"];
+        if (!vf || !ff) return nil;
+        MTLRenderPipelineDescriptor *desc = [MTLRenderPipelineDescriptor new];
+        desc.vertexFunction = vf;
+        desc.fragmentFunction = ff;
+        desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        desc.colorAttachments[0].blendingEnabled = YES;
+        desc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        desc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+        desc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        pso = [dev newRenderPipelineStateWithDescriptor:desc error:&err];
+    } @catch (NSException *e) { pso = nil; }
+    return pso;
+}
+
+@interface CSGlassLensView : UIView
+@property (nonatomic, strong) UIImageView *fallbackRimView;
+@property (nonatomic, strong) CAMetalLayer *metalLayer;
+@property (nonatomic, strong) id<MTLCommandQueue> cmdQueue;
+@property (nonatomic, assign) double lastFocusK;
+@property (nonatomic, assign) double lastPhase;
+@property (nonatomic, assign) double lastHue;
+- (void)renderWithFocus:(double)focusK phase:(double)phase;
+@end
+
+@implementation CSGlassLensView
+- (instancetype)initWithFrame:(CGRect)f {
+    if ((self = [super initWithFrame:f])) {
+        self.userInteractionEnabled = NO;
+        self.backgroundColor = UIColor.clearColor;
+        _lastFocusK = -1;
+        _lastPhase = -999;
+        _lastHue = -1;
+
+        _fallbackRimView = [[UIImageView alloc] initWithFrame:self.bounds];
+        _fallbackRimView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        _fallbackRimView.image = csLoadAsset(@"glass_rim", NO);
+        _fallbackRimView.contentMode = UIViewContentModeScaleToFill;
+        [self addSubview:_fallbackRimView];
+
+        id<MTLDevice> dev = csSharedMTLDevice();
+        id<MTLRenderPipelineState> pso = csSharedGlassPipeline();
+        if (dev && pso) {
+            _metalLayer = [CAMetalLayer layer];
+            _metalLayer.device = dev;
+            _metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+            _metalLayer.opaque = NO;
+            _metalLayer.framebufferOnly = YES;
+            _metalLayer.contentsScale = csScreenScale();
+            _metalLayer.frame = self.bounds;
+            [self.layer addSublayer:_metalLayer];
+            _cmdQueue = [dev newCommandQueue];
+        }
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    if (_metalLayer) {
+        _metalLayer.frame = self.bounds;
+        CGFloat sc = csScreenScale();
+        CGSize px = CGSizeMake(MAX(2, round(self.bounds.size.width * sc)), MAX(2, round(self.bounds.size.height * sc)));
+        if (!CGSizeEqualToSize(_metalLayer.drawableSize, px)) {
+            _metalLayer.drawableSize = px;
+            _lastFocusK = -1;
+        }
+    }
+}
+
+- (void)renderWithFocus:(double)focusK phase:(double)phase {
+    BOOL useMetal = C.metalGlass && !NSProcessInfo.processInfo.lowPowerModeEnabled && self.metalLayer && self.cmdQueue;
+    self.metalLayer.hidden = !useMetal;
+    self.fallbackRimView.hidden = useMetal || (self.fallbackRimView.image == nil);
+    if (!useMetal) {
+        self.fallbackRimView.alpha = (CGFloat)(0.75 + 0.25 * focusK);
+        return;
+    }
+    if (fabs(focusK - self.lastFocusK) < 0.02 && fabs(phase - self.lastPhase) < 0.02 && fabs(C.glowHue - self.lastHue) < 0.5) {
+        return;
+    }
+    self.lastFocusK = focusK;
+    self.lastPhase = phase;
+    self.lastHue = C.glowHue;
+
+    id<MTLRenderPipelineState> pso = csSharedGlassPipeline();
+    if (!pso) return;
+    id<CAMetalDrawable> drawable = [self.metalLayer nextDrawable];
+    if (!drawable) return;
+
+    UIColor *tc = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.45 brightness:1.0 alpha:1.0];
+    CGFloat tr = 0.6, tg = 0.8, tb = 1.0, ta = 1.0;
+    [tc getRed:&tr green:&tg blue:&tb alpha:&ta];
+
+    CSGlassUniforms u;
+    memset(&u, 0, sizeof(u));
+    u.tintR = (float)tr;
+    u.tintG = (float)tg;
+    u.tintB = (float)tb;
+    u.tintA = (float)(CSClamp(C.glassTintAlpha, 0, 100) / 100.0);
+    u.refraction = (float)(CSClamp(C.glassRefract, 0, 100) / 100.0);
+    u.specular = (float)(CSClamp(C.glassSpecular, 0, 150) / 100.0);
+    u.dispersion = (float)(CSClamp(C.glassDispersion, 0, 100) / 100.0);
+    u.focusK = (float)focusK;
+    u.phase = (float)phase;
+
+    MTLRenderPassDescriptor *rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+    rpd.colorAttachments[0].texture = drawable.texture;
+    rpd.colorAttachments[0].loadAction = MTLLoadActionClear;
+    rpd.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 0);
+    rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+    id<MTLCommandBuffer> cb = [self.cmdQueue commandBuffer];
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rpd];
+    [enc setRenderPipelineState:pso];
+    [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
+    [enc drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    [enc endEncoding];
+    [cb presentDrawable:drawable];
+    [cb commit];
+}
+@end
+
+#pragma mark - App Info & Switcher Data
 
 @interface CSItem : NSObject
 @property (nonatomic, copy) NSString *bid, *name;
@@ -268,6 +480,7 @@ static id sbApp(NSString *bid) {
 }
 
 static NSString *appName(NSString *bid) {
+    if (!bid.length) return nil;
     NSString *n = send0(sbApp(bid), @"displayName");
     if ([n isKindOfClass:NSString.class] && n.length) return n;
     id px = send1((id)NSClassFromString(@"LSApplicationProxy"), @"applicationProxyForIdentifier:", bid);
@@ -474,7 +687,7 @@ static void openApp(NSString *bid) {
     }
 }
 
-#pragma mark - Card & Label Views (with @3x Glass Rim & Halo Assets)
+#pragma mark - Card & Label Views (with GPU Liquid Glass Lens)
 
 @interface CSLabel : UILabel
 @end
@@ -487,20 +700,20 @@ static void openApp(NSString *bid) {
     }
     return self;
 }
-- (void)drawTextInRect:(CGRect)r { [super drawTextInRect:UIEdgeInsetsInsetRect(r, UIEdgeInsetsMake(4, 14, 4, 14))]; }
+- (void)drawTextInRect:(CGRect)r { [super drawTextInRect:UIEdgeInsetsInsetRect(r, UIEdgeInsetsMake(5, 15, 5, 15))]; }
 - (CGSize)sizeThatFits:(CGSize)size {
     CGSize s = [super sizeThatFits:size];
-    return CGSizeMake(ceil(s.width + 28), ceil(s.height + 8));
+    return CGSizeMake(ceil(s.width + 30), ceil(s.height + 10));
 }
 @end
 
 static NSAttributedString *labelFor(CSItem *it) {
     NSMutableAttributedString *as = [NSMutableAttributedString new];
-    UIFont *f = [UIFont systemFontOfSize:(C.namePill ? 13 : 16) weight:UIFontWeightSemibold];
+    UIFont *f = [UIFont systemFontOfSize:(C.namePill ? 14 : 16) weight:UIFontWeightSemibold];
     NSDictionary *at = @{NSFontAttributeName: f, NSForegroundColorAttributeName: UIColor.whiteColor};
     if (C.nameIcon && it.icon) {
         NSTextAttachment *ta = [NSTextAttachment new];
-        ta.image = it.icon; ta.bounds = CGRectMake(0, -3, 15, 15);
+        ta.image = it.icon; ta.bounds = CGRectMake(0, -3, 16, 16);
         [as appendAttributedString:[NSAttributedString attributedStringWithAttachment:ta]];
         [as appendAttributedString:[[NSAttributedString alloc] initWithString:@"  " attributes:at]];
     }
@@ -516,7 +729,7 @@ static NSAttributedString *labelFor(CSItem *it) {
     }
     if (C.ram && it.ram > 0) {
         [as appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"  %d MB", (int)it.ram]
-            attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:11], NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.75]}]];
+            attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:11], NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.78]}]];
     }
     return as;
 }
@@ -524,7 +737,8 @@ static NSAttributedString *labelFor(CSItem *it) {
 @interface CSCard : UIView
 @property (nonatomic, strong) UIView *front, *back;
 @property (nonatomic, strong) CAGradientLayer *grad;
-@property (nonatomic, strong) UIImageView *icon, *icon2, *glassRimView, *haloView;
+@property (nonatomic, strong) UIImageView *icon, *icon2, *haloView;
+@property (nonatomic, strong) CSGlassLensView *glassLens;
 @property (nonatomic, strong) id blurFilter;
 @property (nonatomic, assign) double lastBlurRadius;
 @property (nonatomic, assign) CGRect hit;
@@ -532,7 +746,7 @@ static NSAttributedString *labelFor(CSItem *it) {
 @property (nonatomic, assign) BOOL circle, neon;
 - (void)configure:(CSItem *)it showIcon:(BOOL)on;
 - (void)setBlur:(double)r;
-- (void)setGlow:(double)k;
+- (void)setGlow:(double)k phase:(double)phase;
 @end
 
 @implementation CSCard
@@ -556,11 +770,8 @@ static NSAttributedString *labelFor(CSItem *it) {
         _icon = [UIImageView new]; _icon.contentMode = UIViewContentModeScaleAspectFit; _icon.layer.cornerRadius = 12; _icon.clipsToBounds = YES;
         [_front addSubview:_icon];
 
-        _glassRimView = [UIImageView new];
-        _glassRimView.image = csLoadAsset(@"glass_rim", NO);
-        _glassRimView.contentMode = UIViewContentModeScaleToFill;
-        _glassRimView.userInteractionEnabled = NO;
-        [_front addSubview:_glassRimView];
+        _glassLens = [[CSGlassLensView alloc] initWithFrame:self.bounds];
+        [_front addSubview:_glassLens];
 
         _back = [UIView new];
         _back.backgroundColor = [UIColor colorWithWhite:0.14 alpha:1];
@@ -584,7 +795,7 @@ static NSAttributedString *labelFor(CSItem *it) {
     [super layoutSubviews];
     self.front.frame = self.bounds; self.back.frame = self.bounds;
     self.grad.frame = self.bounds;
-    self.glassRimView.frame = self.front.bounds;
+    self.glassLens.frame = self.front.bounds;
     self.haloView.frame = CGRectInset(self.bounds, -self.bounds.size.width * 0.22, -self.bounds.size.height * 0.22);
 
     CGFloat bw = self.bounds.size.width;
@@ -597,14 +808,17 @@ static NSAttributedString *labelFor(CSItem *it) {
     self.front.layer.borderWidth = self.circle ? 1.5 : (self.neon ? 2.0 : 0.5);
     UIColor *nb = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.45 brightness:1 alpha:0.9];
     self.front.layer.borderColor = (self.neon ? nb : [UIColor colorWithWhite:1 alpha:self.circle ? 0.55 : 0.25]).CGColor;
-    self.glassRimView.hidden = !(self.circle && C.glassOverlay && self.glassRimView.image);
+    self.glassLens.hidden = !(self.circle && C.glassOverlay);
 }
-- (void)setGlow:(double)k {
+- (void)setGlow:(double)k phase:(double)phase {
     UIColor *g = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.55 brightness:1 alpha:1];
+    if (self.circle && C.glassOverlay) {
+        [self.glassLens renderWithFocus:k phase:phase];
+    }
     if (self.circle && C.ringGlow && self.haloView.image) {
         self.haloView.hidden = NO;
         self.haloView.tintColor = g;
-        self.haloView.alpha = (CGFloat)((0.22 + 0.72 * k) * (C.glowAmt / 100.0));
+        self.haloView.alpha = (CGFloat)((0.20 + 0.72 * k) * (C.glowAmt / 100.0));
     } else {
         self.haloView.hidden = YES;
     }
@@ -625,7 +839,7 @@ static NSAttributedString *labelFor(CSItem *it) {
 }
 @end
 
-#pragma mark - Bubbles and Window
+#pragma mark - Bubbles & Overlay Window (Mode 2)
 
 @class CSOverlay;
 static CSOverlay *csOverlay;
@@ -658,8 +872,7 @@ static UIWindow *ensureWindow(void) {
         csRoot.view.backgroundColor = UIColor.clearColor;
         csWin.rootViewController = csRoot;
         csWin.hidden = NO;
-        csLog(@"window created (scene=%d)", sc != nil);
-    } @catch (NSException *e) { csLog(@"window exception: %@", e); csWin = nil; }
+    } @catch (NSException *e) { csWin = nil; }
     return csWin;
 }
 
@@ -693,25 +906,20 @@ static void csRemoveBubble(CSBubble *b);
         UIImage *rim = csLoadAsset(@"glass_rim", NO);
         if (rim) {
             UIImageView *rv = [[UIImageView alloc] initWithFrame:self.bounds];
-            rv.image = rim;
-            rv.userInteractionEnabled = NO;
+            rv.image = rim; rv.userInteractionEnabled = NO;
             [self addSubview:rv];
         }
-
         [self addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onPan:)]];
         [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTap:)]];
     }
     return self;
 }
-- (void)onTap:(UITapGestureRecognizer *)g {
-    NSString *bid = self.item.bid;
-    csRemoveBubble(self);
-    openApp(bid);
-}
+- (void)onTap:(UITapGestureRecognizer *)g { NSString *bid = self.item.bid; csRemoveBubble(self); openApp(bid); }
 - (void)onPan:(UIPanGestureRecognizer *)g {
     UIView *host = self.superview;
     if (!host) return;
     CGSize sz = host.bounds.size;
+    UIEdgeInsets safe = csSafeInsets();
     if (g.state == UIGestureRecognizerStateBegan) {
         if (!csTrash) {
             csTrash = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 64, 64)];
@@ -719,7 +927,7 @@ static void csRemoveBubble(CSBubble *b);
             UIImageView *x = [[UIImageView alloc] initWithImage:[[UIImage systemImageNamed:@"xmark"] imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal]];
             x.frame = CGRectMake(20, 20, 24, 24); x.contentMode = UIViewContentModeScaleAspectFit; [csTrash addSubview:x];
         }
-        csTrash.center = CGPointMake(sz.width / 2, sz.height - 90); csTrash.alpha = 0;
+        csTrash.center = CGPointMake(sz.width / 2, sz.height - safe.bottom - 56); csTrash.alpha = 0;
         [host addSubview:csTrash]; [host bringSubviewToFront:self];
         [UIView animateWithDuration:0.2 animations:^{ csTrash.alpha = 1; }];
     }
@@ -733,7 +941,7 @@ static void csRemoveBubble(CSBubble *b);
         if (near) { csRemoveBubble(self); return; }
         CGFloat s = C.bubSize;
         CGFloat x = self.center.x < sz.width / 2 ? s / 2 + 8 : sz.width - s / 2 - 8;
-        CGFloat y = clampd(self.center.y, 80, sz.height - 160);
+        CGFloat y = clampd(self.center.y, safe.top + 36, sz.height - safe.bottom - 126);
         [UIView animateWithDuration:0.3 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0 options:0 animations:^{ self.center = CGPointMake(x, y); } completion:nil];
     }
 }
@@ -758,14 +966,12 @@ static void csAddBubble(CSItem *it, CGPoint from) {
     [csRoot.view addSubview:b];
     [csBubbles addObject:b];
     CGSize sz = csRoot.view.bounds.size;
-    CGFloat y = 130 + (csBubbles.count - 1) * (C.bubSize + 12);
+    UIEdgeInsets safe = csSafeInsets();
+    CGFloat y = safe.top + 86 + (csBubbles.count - 1) * (C.bubSize + 12);
     [UIView animateWithDuration:0.4 delay:0 usingSpringWithDamping:0.75 initialSpringVelocity:0 options:0 animations:^{
         b.transform = CGAffineTransformIdentity; b.center = CGPointMake(sz.width - C.bubSize / 2 - 8, y);
     } completion:nil];
-    csLog(@"bubble added: %@", it.bid);
 }
-
-#pragma mark - Overlay (Mode 2 with Damped Spring Engine & Backdrop Asset)
 
 @interface CSOverlay : UIView <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIVisualEffectView *blurBg;
@@ -790,8 +996,6 @@ static void csAddBubble(CSItem *it, CGPoint from) {
 @property (nonatomic, strong) UIImpactFeedbackGenerator *hapticGen;
 - (void)reloadItems;
 - (void)relayout;
-- (void)relayoutRing;
-- (void)relayoutCards;
 - (void)stopLink;
 - (BOOL)userRecentlyTouched:(NSTimeInterval)sec;
 @end
@@ -894,17 +1098,19 @@ static BOOL csForceHidden;
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
+    UIEdgeInsets safe = csSafeInsets();
+    CGFloat botY = H - MAX(34.0, safe.bottom) - 48.0;
     if (C.style <= 1) {
         self.xBtn.bounds = CGRectMake(0, 0, 170, 46);
-        self.xBtn.center = CGPointMake(W / 2, H - 92);
-        self.cleanBtn.center = CGPointMake(W / 2 - 124, H - 92);
+        self.xBtn.center = CGPointMake(W / 2, botY);
+        self.cleanBtn.center = CGPointMake(W / 2 - 124, botY);
     } else {
         self.xBtn.bounds = CGRectMake(0, 0, 46, 46);
-        self.xBtn.center = CGPointMake(W / 2, H - 70);
-        self.cleanBtn.center = CGPointMake(W / 2 - 80, H - 70);
+        self.xBtn.center = CGPointMake(W / 2, botY + 12);
+        self.cleanBtn.center = CGPointMake(W / 2 - 80, botY + 12);
     }
     self.emptyLabel.frame = CGRectMake(0, H * 0.44, W, 24);
-    self.exitBtn.frame = CGRectMake(16, 56, 92, 30);
+    self.exitBtn.frame = CGRectMake(16, MAX(44.0, safe.top) + 10, 92, 30);
     [self relayout];
 }
 
@@ -912,9 +1118,10 @@ static BOOL csForceHidden;
 - (NSString *)frontBID { return (self.front >= 0 && self.front < (NSInteger)self.items.count) ? self.items[self.front].bid : nil; }
 
 - (void)toast:(NSString *)t {
+    UIEdgeInsets safe = csSafeInsets();
     self.toastLabel.text = t; [self.toastLabel sizeToFit];
-    CGRect f = self.toastLabel.frame; f.size.height = 26;
-    self.toastLabel.frame = f; self.toastLabel.center = csSnapPoint(CGPointMake(self.bounds.size.width / 2, 70));
+    CGRect f = self.toastLabel.frame; f.size.height = 28;
+    self.toastLabel.frame = f; self.toastLabel.center = csSnapPoint(CGPointMake(self.bounds.size.width / 2, MAX(44.0, safe.top) + 24));
     self.toastLabel.alpha = 1;
     [UIView animateWithDuration:0.3 delay:1.6 options:0 animations:^{ self.toastLabel.alpha = 0; } completion:nil];
 }
@@ -961,9 +1168,10 @@ static BOOL csForceHidden;
         [c configure:it showIcon:C.icon];
         [self.ring addSubview:c]; [self.cards addObject:c];
         CSLabel *l = [CSLabel new];
-        l.backgroundColor = C.namePill ? [UIColor colorWithWhite:0.1 alpha:0.82] : UIColor.clearColor;
-        l.layer.cornerRadius = 12; l.layer.masksToBounds = YES;
-        if (!C.namePill) { l.layer.shadowColor = UIColor.blackColor.CGColor; l.layer.shadowOpacity = 0.55; l.layer.shadowRadius = 3; l.layer.shadowOffset = CGSizeZero; l.layer.masksToBounds = NO; }
+        l.backgroundColor = C.namePill ? [UIColor colorWithRed:0.08 green:0.10 blue:0.16 alpha:0.86] : UIColor.clearColor;
+        l.layer.cornerRadius = 13; l.layer.masksToBounds = YES;
+        if (C.namePill) { l.layer.borderWidth = 0.8; l.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.25].CGColor; }
+        else { l.layer.shadowColor = UIColor.blackColor.CGColor; l.layer.shadowOpacity = 0.65; l.layer.shadowRadius = 4; l.layer.shadowOffset = CGSizeZero; l.layer.masksToBounds = NO; }
         l.attributedText = labelFor(it); [l sizeToFit];
         [self.labelHost addSubview:l]; [self.labels addObject:l];
     }
@@ -973,9 +1181,10 @@ static BOOL csForceHidden;
 - (void)rebuildDots {
     for (UIView *v in self.dotsView.subviews) [v removeFromSuperview];
     CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
+    UIEdgeInsets safe = csSafeInsets();
     NSUInteger n = self.items.count;
     CGFloat total = n * 10 - 4;
-    self.dotsView.frame = CGRectMake((W - total) / 2, H - (C.style >= 2 ? 125 : 150), total, 6);
+    self.dotsView.frame = CGRectMake((W - total) / 2, H - MAX(34.0, safe.bottom) - 102.0, total, 6);
     self.dotsView.hidden = !C.dots || n == 0;
     for (NSUInteger i = 0; i < n; i++) {
         UIView *d = [[UIView alloc] initWithFrame:CGRectMake(i * 10, 0, 6, 6)];
@@ -987,44 +1196,32 @@ static BOOL csForceHidden;
     }
 }
 
-- (void)applyBackground {
+- (void)relayout {
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
     self.backgroundColor = [UIColor colorWithWhite:0 alpha:CSClamp(C.dim, 0, 90) / 100.0];
     self.blurBg.hidden = C.bgBlur < 0.5;
     self.blurBg.alpha = CSClamp(C.bgBlur / 10.0, 0, 1);
     self.backdropAssetView.hidden = (self.backdropAssetView.image == nil);
-}
 
-- (void)relayout {
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    [self applyBackground];
-    BOOL circ = C.style <= 1;
-    if (!circ) {
-        self.glowRing.hidden = YES; self.bubble.hidden = YES; self.chev.hidden = YES;
-        [self relayoutCards];
-    } else [self relayoutRing];
-    [CATransaction commit];
-}
-
-- (void)relayoutRing {
     NSInteger n = self.items.count;
-    if (n != (NSInteger)self.cards.count) return;
+    if (n != (NSInteger)self.cards.count) { [CATransaction commit]; return; }
     CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
-    CGFloat cx = csSnapPx(W / 2), cy = csSnapPx(H * 0.46);
+    CGFloat cx = csSnapPx(W / 2), cy = csSnapPx(H * 0.45);
     self.ring.bounds = CGRectMake(0, 0, 2, 2); self.ring.center = CGPointMake(cx, cy);
-    self.ring.layer.sublayerTransform = CATransform3DIdentity;
     double step = [self step];
     double deltaRot = normDeg(self.rot - self.lastRot);
     self.lastRot = self.rot;
     double spd = fabs(deltaRot);
-    double targetBank = CSClamp(deltaRot * 0.015, -0.105, 0.105);
+    double targetBank = CSClamp(deltaRot * 0.014, -0.09, 0.09);
     self.smoothBank = self.smoothBank * 0.65 + targetBank * 0.35;
     if (fabs(self.smoothBank) < 0.002) self.smoothBank = 0;
 
-    CSRingCfg cfg = csCfgWithBank(self.smoothBank);
+    CSRingCfg cfg = csCfgWithBank(self.smoothBank, W, H);
+    BOOL circ = C.style <= 1;
     double mblur = C.motionBlurOn ? C.moveBlur * MIN(1.0, spd / MAX(step * 0.16, 0.35)) : 0;
 
-    if (C.ringGlow) {
+    if (circ && C.ringGlow) {
         double gx, gy, rx, ry; CSRingGlowRect(cfg, &gx, &gy, &rx, &ry);
         UIColor *g = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.6 brightness:1 alpha:1];
         self.glowRing.path = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(cx + gx - rx, cy + gy - ry, rx * 2, ry * 2)].CGPath;
@@ -1033,55 +1230,76 @@ static BOOL csForceHidden;
         self.glowRing.hidden = NO;
     } else self.glowRing.hidden = YES;
 
+    self.ring.layer.sublayerTransform = CATransform3DIdentity;
     double best = 1e9; NSInteger front = -1;
     NSMutableArray *order = [NSMutableArray array];
     double selDia = 0, selY = 0;
+
     for (NSInteger i = 0; i < n; i++) {
         CSCard *card = self.cards[i]; CSLabel *lb = self.labels[i];
         double phi = normDeg(i * step - self.rot);
-        CSPose p = CSRingPoseCircle(phi, step, cfg, W);
-        double y = p.y;
-        if (i == self.front && self.dragY != 0) y += self.dragY;
-        if (fabs(card.bounds.size.width - 100) > 0.5 || fabs(card.bounds.size.height - 100) > 0.5) card.bounds = CGRectMake(0, 0, 100, 100);
-        double f = p.dia / 100.0;
-        card.layer.position = csSnapPoint(CGPointMake(1 + p.x, 1 + y));
-        CATransform3D t = CATransform3DIdentity;
-        if (!C.crispText || fabs(p.yaw) > 0.008) {
+        if (circ) {
+            CSPose p = CSRingPoseCircle(phi, step, cfg, W);
+            double y = p.y + (i == self.front ? self.dragY : 0);
+            if (fabs(card.bounds.size.width - 100) > 0.5) card.bounds = CGRectMake(0, 0, 100, 100);
+            double f = p.dia / 100.0;
+            card.layer.position = csSnapPoint(CGPointMake(1 + p.x, 1 + y));
+            CATransform3D t = CATransform3DIdentity;
+            if (fabs(p.yaw) > 0.008) { t.m34 = -1.0 / p.perspective; t = CATransform3DRotate(t, p.yaw, 0, 1, 0); }
+            t = CATransform3DScale(t, f, f, 1);
+            card.layer.transform = t; card.layer.zPosition = p.z + p.k * 2;
+            double op = p.opacity * (i == self.front && self.dragY < 0 ? MAX(0.2, 1 + self.dragY / 220.0) : 1.0);
+            card.alpha = op;
+            [card setBlur:(C.style == 1 ? C.blur * MIN(1.0, fabs(phi) / 90.0) : 0) + mblur];
+            [card setGlow:p.k phase:self.smoothBank * 4.0 + phi * 0.02];
+            card.front.hidden = NO; card.back.hidden = YES;
+            double px = cx + p.x, py = cy + y, rr = p.dia / 2;
+            card.hit = CGRectMake(px - rr, py - rr, rr * 2, rr * 2); card.zv = p.z + p.k * 2;
+            [order addObject:card];
+            if (fabs(phi) < best) { best = fabs(phi); front = i; selDia = p.dia; selY = py; }
+            BOOL show = C.namePos != 3 && fabs(phi) <= step / 2;
+            lb.hidden = !show;
+            if (show) {
+                double bubR = 59.0 * C.centerSize / 100.0 * C.size / 100.0;
+                double ly = (C.style == 0)
+                    ? (C.namePos == 0 ? py - rr - 18 : (C.namePos == 1 ? cy + C.off + bubR + 26 : cy + C.off + cfg.radius * 1.25 + selDia / 2 + 28))
+                    : (C.namePos == 0 ? py - rr - 22 : (C.namePos == 1 ? py : py + rr + 22));
+                lb.center = csSnapPoint(CGPointMake(C.style == 0 && C.namePos != 0 ? cx : px, ly));
+                lb.transform = CGAffineTransformIdentity; lb.alpha = 1;
+            }
+        } else {
+            CGFloat w = 110 * C.size / 100.0, h = 186 * C.size / 100.0;
+            CSPose p = (C.style == 3) ? CSRingPoseStrip(phi, step, cfg) : CSRingPose(phi, cfg);
+            double y = p.y + (i == self.front ? self.dragY : 0);
+            double s = 1.0 / (1.0 - p.z / p.perspective);
+            double fsc = (C.style == 3) ? (0.80 + 0.30 * p.k) : 1.0;
+            if (fabs(card.bounds.size.width - w) > 0.5) card.bounds = CGRectMake(0, 0, w, h);
+            card.layer.position = csSnapPoint(CGPointMake(1 + p.x, 1 + y));
+            CATransform3D t = CATransform3DIdentity;
             t.m34 = -1.0 / p.perspective;
             t = CATransform3DRotate(t, p.yaw, 0, 1, 0);
-        }
-        t = CATransform3DScale(t, f, f, 1);
-        card.layer.transform = t; card.layer.zPosition = p.z + p.k * 2;
-        double op = p.opacity;
-        if (i == self.front && self.dragY < 0) op *= MAX(0.2, 1 + self.dragY / 220.0);
-        card.alpha = op;
-        double distBlur = (C.style == 1 ? C.blur * MIN(1.0, fabs(phi) / 90.0) : 0);
-        [card setBlur:distBlur + mblur];
-        [card setGlow:p.k];
-        card.front.hidden = NO; card.back.hidden = YES;
-        double px = cx + p.x, py = cy + y, rr = p.dia / 2;
-        card.hit = CGRectMake(px - rr, py - rr, rr * 2, rr * 2); card.zv = p.z + p.k * 2;
-        [order addObject:card];
-        if (fabs(phi) < best) { best = fabs(phi); front = i; selDia = p.dia; selY = py; }
-        BOOL isFront = fabs(phi) <= step / 2;
-        BOOL show = C.namePos != 3 && isFront;
-        lb.hidden = !show;
-        if (show) {
-            double bubR = 59.0 * C.centerSize / 100.0 * C.size / 100.0;
-            double ly;
-            if (C.style == 0) {
-                ly = C.namePos == 0 ? py - rr - 18 : (C.namePos == 1 ? cy + C.off + bubR + 26 : cy + C.off + cfg.radius * 1.25 + selDia / 2 + 28);
-                lb.center = csSnapPoint(CGPointMake(C.namePos == 0 ? px : cx, ly));
-            } else {
-                ly = C.namePos == 0 ? py - rr - 22 : (C.namePos == 1 ? py : py + rr + 22);
+            t = CATransform3DScale(t, fsc * s, fsc * s, 1);
+            card.layer.transform = t; card.layer.zPosition = p.z;
+            card.alpha = p.opacity;
+            [card setBlur:C.blur * MIN(1.0, fabs(phi) / 90.0) + mblur];
+            [card setGlow:p.k phase:0];
+            card.front.hidden = cos(p.yaw) < 0; card.back.hidden = !card.front.hidden;
+            double px = cx + p.x, py = cy + y, hw = w * fsc * s / 2, hh = h * fsc * s / 2;
+            card.hit = CGRectMake(px - hw, py - hh, hw * 2, hh * 2); card.zv = p.z;
+            [order addObject:card];
+            if (fabs(phi) < best) { best = fabs(phi); front = i; }
+            BOOL show = C.namePos != 3 && !(C.onlyFront && fabs(phi) > 20);
+            lb.hidden = !show;
+            if (show) {
+                double ly = C.namePos == 0 ? py - hh - 16 : (C.namePos == 2 ? py + hh + 16 : py);
                 lb.center = csSnapPoint(CGPointMake(px, ly));
+                lb.transform = CGAffineTransformMakeScale(s, s); lb.alpha = p.opacity;
             }
-            lb.transform = CGAffineTransformIdentity;
-            lb.alpha = 1;
         }
     }
     [order sortUsingComparator:^NSComparisonResult(CSCard *a, CSCard *b) { return a.zv < b.zv ? NSOrderedAscending : NSOrderedDescending; }];
     for (CSCard *c in order) [self.ring bringSubviewToFront:c];
+
     BOOL flat = C.style == 0 && n > 0;
     self.bubble.hidden = !flat;
     if (flat) {
@@ -1094,78 +1312,14 @@ static BOOL csForceHidden;
         self.bubbleIcon.hidden = !C.icon;
     }
     self.chev.hidden = !(C.style == 0 && C.chevron && n > 0);
-    if (!self.chev.hidden) self.chev.center = csSnapPoint(CGPointMake(cx, selY - selDia / 2 - (C.namePos == 0 && C.style == 0 ? 52 : 26)));
+    if (!self.chev.hidden) self.chev.center = csSnapPoint(CGPointMake(cx, selY - selDia / 2 - (C.namePos == 0 ? 52 : 26)));
     if (front != self.front) {
         BOOL first = (self.front == -2);
         self.front = front;
         if (!first) [self buzz];
         [self rebuildDots];
     }
-}
-
-- (void)relayoutCards {
-    NSInteger n = self.items.count;
-    if (n != (NSInteger)self.cards.count) return;
-    CGFloat W = self.bounds.size.width, H = self.bounds.size.height, P = 900;
-    CGFloat cx = csSnapPx(W / 2), cy = csSnapPx(H * 0.46 + C.off);
-    self.ring.bounds = CGRectMake(0, 0, 2, 2); self.ring.center = CGPointMake(cx, cy);
-    CATransform3D persp = CATransform3DIdentity; persp.m34 = -1.0 / P;
-    self.ring.layer.sublayerTransform = persp;
-    double step = [self step], e = C.cam * M_PI / 180.0;
-    CGFloat w = 110 * C.size / 100.0, h = 186 * C.size / 100.0;
-    BOOL neon = C.style == 3;
-    double gm = neon ? C.gap / 100.0 : 1.0;
-    double spd = fabs(normDeg(self.rot - self.lastRot)); self.lastRot = self.rot;
-    double mblur = C.motionBlurOn ? C.moveBlur * MIN(1.0, spd / MAX(step * 0.16, 0.35)) : 0;
-    double best = 1e9; NSInteger front = -1;
-    NSMutableArray *order = [NSMutableArray array];
-    for (NSInteger i = 0; i < n; i++) {
-        CSCard *card = self.cards[i]; CSLabel *lb = self.labels[i];
-        double phi = normDeg(i * step - self.rot), r = phi * gm * M_PI / 180.0;
-        double kk = CSClamp(1.0 - fabs(phi) / MAX(step, 1.0), 0, 1), ks = kk * kk * (3.0 - 2.0 * kk);
-        double fsc = neon ? 0.80 + 0.30 * ks : 1.0;
-        double x = C.radius * sin(r), depth = C.radius * cos(r) - C.radius;
-        double z = depth * cos(e), y = depth * sin(e);
-        if (i == self.front && self.dragY != 0) y += self.dragY;
-        double yaw = -C.tilt * clampd(phi / 45.0, -1, 1) * M_PI / 180.0;
-        BOOL back = cos(yaw) < 0;
-        double s = 1.0 / (1.0 - z / P);
-        if (fabs(card.bounds.size.width - w) > 0.5 || fabs(card.bounds.size.height - h) > 0.5) card.bounds = CGRectMake(0, 0, w, h);
-        card.center = CGPointMake(1, 1);
-        CATransform3D t = CATransform3DIdentity;
-        t = CATransform3DTranslate(t, x, y, z);
-        if (!C.crispText || fabs(yaw) > 0.008) t = CATransform3DRotate(t, yaw, 0, 1, 0);
-        if (neon) t = CATransform3DScale(t, fsc, fsc, 1);
-        card.layer.transform = t;
-        double op = 0.4 + 0.6 * (cos(r) + 1) / 2;
-        if (i == self.front && self.dragY < 0) op *= MAX(0.2, 1 + self.dragY / 220.0);
-        card.alpha = op;
-        double bl = C.blur * MIN(1.0, fabs(phi) / 90.0) + (C.namePos == 1 ? 1.5 : 0) + mblur;
-        [card setBlur:bl];
-        [card setGlow:ks];
-        card.front.hidden = back; card.back.hidden = !back;
-        double px = cx + x * s, py = cy + y * s;
-        double hw = (w * fsc * s / 2) * MAX(fabs(cos(yaw)), 0.25), hh = h * fsc * s / 2;
-        card.hit = CGRectMake(px - hw, py - hh, hw * 2, hh * 2); card.zv = z;
-        [order addObject:card];
-        BOOL show = C.namePos != 3 && !(C.onlyFront && fabs(phi) > 20);
-        lb.hidden = !show;
-        if (show) {
-            double ly = C.namePos == 0 ? py - hh - 16 : (C.namePos == 2 ? py + hh + 16 : py);
-            lb.center = csSnapPoint(CGPointMake(px, ly));
-            lb.transform = CGAffineTransformMakeScale(s, s);
-            lb.alpha = op;
-        }
-        if (fabs(phi) < best) { best = fabs(phi); front = i; }
-    }
-    [order sortUsingComparator:^NSComparisonResult(CSCard *a, CSCard *b) { return a.zv < b.zv ? NSOrderedAscending : NSOrderedDescending; }];
-    for (CSCard *c in order) [self.ring bringSubviewToFront:c];
-    if (front != self.front) {
-        BOOL first = (self.front == -2);
-        self.front = front;
-        if (!first) [self buzz];
-        [self rebuildDots];
-    }
+    [CATransaction commit];
 }
 
 - (void)startLink {
@@ -1176,16 +1330,12 @@ static BOOL csForceHidden;
     }
     self.link.paused = NO;
 }
-
-- (void)stopLink {
-    if (self.link) { [self.link invalidate]; self.link = nil; }
-}
+- (void)stopLink { if (self.link) { [self.link invalidate]; self.link = nil; } }
 
 - (void)onFrame:(CADisplayLink *)l {
     double dt = MAX(0.001, l.targetTimestamp - l.timestamp);
     double stiff = 240.0 * (CSClamp(C.springStiffness, 50, 180) / 100.0);
-    double damp = 2.0 * sqrt(stiff) * 0.94; // smooth critically-damped spring
-
+    double damp = 2.0 * sqrt(stiff) * 0.94;
     if (self.anim == 1) {
         CSSpringStep(&_rotSpring, dt, stiff, damp);
         self.rot = _rotSpring.pos;
@@ -1195,45 +1345,27 @@ static BOOL csForceHidden;
         self.vel *= pow(0.935, dt * 60);
         if (fabs(self.vel) < 35) {
             double st = [self step];
-            _rotSpring.pos = self.rot;
-            _rotSpring.vel = self.vel; // carry momentum seamlessly into spring!
-            _rotSpring.target = round(self.rot / st) * st;
-            _rotSpring.active = YES;
+            _rotSpring.pos = self.rot; _rotSpring.vel = self.vel; _rotSpring.target = round(self.rot / st) * st; _rotSpring.active = YES;
             self.anim = 1;
         }
     } else if (self.anim == 3) {
         CSSpringStep(&_dragSpring, dt, 320.0, 28.0);
         self.dragY = _dragSpring.pos;
         if (!_dragSpring.active) { self.dragY = 0; self.anim = 0; l.paused = YES; }
-    } else {
-        l.paused = YES;
-    }
+    } else l.paused = YES;
     [self relayout];
 }
 
 - (void)tweenTo:(double)to withVelocity:(double)vel {
-    _rotSpring.pos = self.rot;
-    _rotSpring.vel = vel;
-    _rotSpring.target = to;
-    _rotSpring.active = YES;
-    self.anim = 1;
-    [self startLink];
+    _rotSpring.pos = self.rot; _rotSpring.vel = vel; _rotSpring.target = to; _rotSpring.active = YES;
+    self.anim = 1; [self startLink];
 }
-
-- (void)snap {
-    double st = [self step];
-    [self tweenTo:round(self.rot / st) * st withVelocity:0];
-}
-
-- (void)rotateToIndex:(NSInteger)i {
-    [self tweenTo:self.rot + normDeg(i * [self step] - self.rot) withVelocity:0];
-}
+- (void)snap { double st = [self step]; [self tweenTo:round(self.rot / st) * st withVelocity:0]; }
+- (void)rotateToIndex:(NSInteger)i { [self tweenTo:self.rot + normDeg(i * [self step] - self.rot) withVelocity:0]; }
 
 - (CSCard *)cardAt:(CGPoint)p {
     CSCard *best = nil;
-    for (CSCard *c in self.cards) {
-        if (CGRectContainsPoint(c.hit, p) && (!best || c.zv > best.zv)) best = c;
-    }
+    for (CSCard *c in self.cards) if (CGRectContainsPoint(c.hit, p) && (!best || c.zv > best.zv)) best = c;
     return best;
 }
 
@@ -1249,19 +1381,10 @@ static BOOL csForceHidden;
         self.panAccum = CGPointMake(self.panAccum.x + t.x, self.panAccum.y + t.y);
         [g setTranslation:CGPointZero inView:self];
         if (self.panMode == 0 && hypot(self.panAccum.x, self.panAccum.y) > 8) {
-            if (fabs(self.panAccum.x) >= fabs(self.panAccum.y)) {
-                self.panMode = 1;
-                self.rot -= self.panAccum.x * (step / 110.0);
-            } else {
-                CSCard *c = [self cardAt:self.panStart];
-                BOOL onFront = c && [self.cards indexOfObject:c] == self.front;
-                self.panMode = onFront ? 2 : 3;
-            }
-        } else if (self.panMode == 1) {
-            self.rot -= t.x * (step / 110.0);
-        } else if (self.panMode == 2) {
-            self.dragY = clampd(self.panAccum.y, -300, 60);
-        }
+            if (fabs(self.panAccum.x) >= fabs(self.panAccum.y)) { self.panMode = 1; self.rot -= self.panAccum.x * (step / 110.0); }
+            else { CSCard *c = [self cardAt:self.panStart]; self.panMode = (c && [self.cards indexOfObject:c] == self.front) ? 2 : 3; }
+        } else if (self.panMode == 1) self.rot -= t.x * (step / 110.0);
+        else if (self.panMode == 2) self.dragY = clampd(self.panAccum.y, -300, 60);
         [self relayout];
     } else if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled || g.state == UIGestureRecognizerStateFailed) {
         if (self.panMode == 1) {
@@ -1271,22 +1394,21 @@ static BOOL csForceHidden;
             if (C.inertia && fabs(v) > 65) { self.vel = v; self.anim = 2; [self startLink]; }
             else [self tweenTo:round(self.rot / step) * step withVelocity:v];
         } else if (self.panMode == 2) {
-            if (self.dragY < -90) { [self closeFront]; }
-            else if (self.dragY > 45) { [self togglePinFront]; }
+            if (self.dragY < -90) [self closeFront];
+            else if (self.dragY > 45) [self togglePinFront];
             _dragSpring.pos = self.dragY; _dragSpring.vel = 0; _dragSpring.target = 0; _dragSpring.active = YES;
             self.anim = 3; [self startLink];
-        } else { [self snap]; }
+        } else [self snap];
         self.panMode = 0;
     }
 }
 
 - (void)onTap:(UITapGestureRecognizer *)g {
     [self touchedNow];
-    CGPoint p = [g locationInView:self];
-    CSCard *c = [self cardAt:p];
+    CSCard *c = [self cardAt:[g locationInView:self]];
     if (c) {
         NSInteger i = [self.cards indexOfObject:c];
-        if (i == self.front) { [self openFront]; }
+        if (i == self.front) [self openFront];
         else { self.prevBID = [self frontBID]; [self rotateToIndex:i]; }
         return;
     }
@@ -1304,36 +1426,21 @@ static BOOL csForceHidden;
     [self bubbleFront];
 }
 
-- (void)onEscape:(UILongPressGestureRecognizer *)g {
-    if (g.state != UIGestureRecognizerStateBegan) return;
-    csLog(@"escape long-press: force hide");
-    csForceHidden = YES; csHideOverlay();
-}
-
-- (void)onExit {
-    CFPreferencesSetAppValue(CFSTR("testShow"), kCFBooleanFalse, CS_DOMAIN);
-    CFPreferencesAppSynchronize(CS_DOMAIN);
-    csHideOverlay();
-}
+- (void)onEscape:(UILongPressGestureRecognizer *)g { if (g.state == UIGestureRecognizerStateBegan) { csForceHidden = YES; csHideOverlay(); } }
+- (void)onExit { CFPreferencesSetAppValue(CFSTR("testShow"), kCFBooleanFalse, CS_DOMAIN); CFPreferencesAppSynchronize(CS_DOMAIN); csHideOverlay(); }
 
 - (void)openFront {
     NSString *b = [self frontBID];
     if (!b) return;
-    [self buzz];
-    csForceHidden = YES;
-    csHideOverlay();
-    openApp(b);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        csForceHidden = NO;
-    });
+    [self buzz]; csForceHidden = YES; csHideOverlay(); openApp(b);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ csForceHidden = NO; });
 }
 
 - (void)goBack {
     if (!self.prevBID) return;
     for (NSUInteger i = 0; i < self.items.count; i++) {
         if ([self.items[i].bid isEqualToString:self.prevBID]) {
-            self.prevBID = [self frontBID];
-            [self rotateToIndex:(NSInteger)i];
+            self.prevBID = [self frontBID]; [self rotateToIndex:(NSInteger)i];
             [self toast:[NSString stringWithFormat:@"Quay lại %@", self.items[i].name]];
             return;
         }
@@ -1342,19 +1449,15 @@ static BOOL csForceHidden;
 
 - (void)removeItemAt:(NSInteger)k {
     if (k < 0 || k >= (NSInteger)self.items.count) return;
-    [self.items removeObjectAtIndex:k];
-    [self rebuildViews];
-    double st = [self step];
-    NSInteger nk = MIN(k, MAX((NSInteger)self.items.count - 1, 0));
-    self.rot = nk * st; self.front = -2; self.dragY = 0;
-    [self relayout];
+    [self.items removeObjectAtIndex:k]; [self rebuildViews];
+    double st = [self step]; NSInteger nk = MIN(k, MAX((NSInteger)self.items.count - 1, 0));
+    self.rot = nk * st; self.front = -2; self.dragY = 0; [self relayout];
 }
 
 - (void)closeFront {
     NSInteger k = self.front;
     if (k < 0 || k >= (NSInteger)self.items.count) return;
-    CSItem *it = self.items[k];
-    killApp(it.bid); [self buzz];
+    CSItem *it = self.items[k]; killApp(it.bid); [self buzz];
     [self toast:[NSString stringWithFormat:@"Đã đóng %@", it.name]];
     self.dragY = 0; [self removeItemAt:k];
 }
@@ -1363,10 +1466,8 @@ static BOOL csForceHidden;
     NSInteger k = self.front;
     if (k < 0 || k >= (NSInteger)self.items.count) return;
     CSItem *it = self.items[k];
-    CGPoint from = [self convertPoint:CGPointMake(self.bounds.size.width / 2, self.bounds.size.height * 0.46 + C.off) toView:csRoot.view];
-    csAddBubble(it, from); [self buzz];
-    [self removeItemAt:k];
-    [self toast:@"Đã tạo bong bóng"];
+    CGPoint from = [self convertPoint:CGPointMake(self.bounds.size.width / 2, self.bounds.size.height * 0.45 + C.off) toView:csRoot.view];
+    csAddBubble(it, from); [self buzz]; [self removeItemAt:k]; [self toast:@"Đã tạo bong bóng"];
 }
 
 - (void)togglePinFront {
@@ -1375,71 +1476,47 @@ static BOOL csForceHidden;
     CSItem *it = self.items[k];
     NSMutableArray *pins = [pinList() mutableCopy];
     if ([pins containsObject:it.bid]) [pins removeObject:it.bid]; else [pins addObject:it.bid];
-    setPinList(pins); [self buzz];
-    it.pinned = [pins containsObject:it.bid];
+    setPinList(pins); [self buzz]; it.pinned = [pins containsObject:it.bid];
     [self toast:[NSString stringWithFormat:@"%@ %@", it.pinned ? @"Đã ghim" : @"Đã bỏ ghim", it.name]];
     NSMutableArray *pinned = [NSMutableArray array], *rest = [NSMutableArray array];
     for (CSItem *x in self.items) [(x.pinned ? pinned : rest) addObject:x];
-    [pinned addObjectsFromArray:rest]; self.items = pinned;
-    [self rebuildViews];
+    [pinned addObjectsFromArray:rest]; self.items = pinned; [self rebuildViews];
     NSUInteger idx = [self.items indexOfObject:it];
-    self.rot = idx * [self step]; self.front = -2; self.dragY = 0;
-    [self relayout];
+    self.rot = idx * [self step]; self.front = -2; self.dragY = 0; [self relayout];
 }
 
 - (void)runKill:(BOOL)all {
-    NSArray *pins = pinList();
-    NSString *keep = [self frontBID];
-    int n = 0;
+    NSArray *pins = pinList(); NSString *keep = [self frontBID]; int n = 0;
     for (CSItem *it in [self.items copy]) {
         if (!all && [it.bid isEqualToString:keep]) continue;
         if (C.keepPinned && [pins containsObject:it.bid]) continue;
         if (killApp(it.bid)) n++;
     }
-    [self buzz];
-    [self toast:[NSString stringWithFormat:@"Đã đóng %d app", n]];
+    [self buzz]; [self toast:[NSString stringWithFormat:@"Đã đóng %d app", n]];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [self reloadItems]; });
 }
 
-- (void)onCloseAll {
-    [self touchedNow];
-    if (self.armX && -[self.armX timeIntervalSinceNow] < 3) { self.armX = nil; [self runKill:YES]; }
-    else { self.armX = [NSDate date]; [self toast:@"Chạm X lần nữa để đóng tất cả"]; }
-}
-
-- (void)onClean {
-    [self touchedNow];
-    if (self.armClean && -[self.armClean timeIntervalSinceNow] < 3) { self.armClean = nil; [self runKill:NO]; }
-    else { self.armClean = [NSDate date]; [self toast:@"Chạm lần nữa để dọn RAM (đóng app nền)"]; }
-}
+- (void)onCloseAll { [self touchedNow]; if (self.armX && -[self.armX timeIntervalSinceNow] < 3) { self.armX = nil; [self runKill:YES]; } else { self.armX = [NSDate date]; [self toast:@"Chạm X lần nữa để đóng tất cả"]; } }
+- (void)onClean { [self touchedNow]; if (self.armClean && -[self.armClean timeIntervalSinceNow] < 3) { self.armClean = nil; [self runKill:NO]; } else { self.armClean = [NSDate date]; [self toast:@"Chạm lần nữa để dọn RAM (đóng app nền)"]; } }
 @end
 
-#pragma mark - Show / Hide / Detection
+#pragma mark - Mode 2 Show/Hide & Detection
 
-static NSDate *csBoot;
-static NSDate *csShownAt;
-static int csTickCount;
+static NSDate *csBoot, *csShownAt;
+static int csTickCount, csHookVis = -1;
 static NSString *csLastSig;
 
 static void csShowOverlay(BOOL test) {
     loadCfg();
     if (!ensureWindow()) return;
     if (!csOverlay) csOverlay = [[CSOverlay alloc] initWithFrame:csRoot.view.bounds];
-    csOverlay.testMode = test; csOverlay.exitBtn.hidden = !test;
-    csOverlay.userInteractionEnabled = YES;
-    if (csOverlay.superview != csRoot.view) {
-        csOverlay.frame = csRoot.view.bounds;
-        csOverlay.alpha = 0;
-        [csRoot.view addSubview:csOverlay];
-    }
+    csOverlay.testMode = test; csOverlay.exitBtn.hidden = !test; csOverlay.userInteractionEnabled = YES;
+    if (csOverlay.superview != csRoot.view) { csOverlay.frame = csRoot.view.bounds; csOverlay.alpha = 0; [csRoot.view addSubview:csOverlay]; }
     [csOverlay reloadItems];
     if (C.openAnim) {
         double sp = CSClamp(C.openSpeed, 40, 250) / 100.0;
-        csOverlay.ring.transform = CGAffineTransformMakeScale(0.35, 0.35);
-        csOverlay.labelHost.alpha = 0;
-        [UIView animateWithDuration:0.52 / sp delay:0 usingSpringWithDamping:0.78 initialSpringVelocity:0.65
-                            options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState
-                         animations:^{ csOverlay.ring.transform = CGAffineTransformIdentity; csOverlay.alpha = 1; } completion:nil];
+        csOverlay.ring.transform = CGAffineTransformMakeScale(0.35, 0.35); csOverlay.labelHost.alpha = 0;
+        [UIView animateWithDuration:0.52 / sp delay:0 usingSpringWithDamping:0.78 initialSpringVelocity:0.65 options:UIViewAnimationOptionAllowUserInteraction | UIViewAnimationOptionBeginFromCurrentState animations:^{ csOverlay.ring.transform = CGAffineTransformIdentity; csOverlay.alpha = 1; } completion:nil];
         [UIView animateWithDuration:0.28 / sp delay:0.10 / sp options:0 animations:^{ csOverlay.labelHost.alpha = 1; } completion:nil];
     } else {
         csOverlay.ring.transform = CGAffineTransformIdentity; csOverlay.labelHost.alpha = 1;
@@ -1447,54 +1524,17 @@ static void csShowOverlay(BOOL test) {
     }
     for (UIView *b in csBubbles) [csRoot.view bringSubviewToFront:b];
     csShownAt = [NSDate date];
-    csLog(@"overlay shown (test=%d)", test);
 }
 
 static void csHideOverlay(void) {
     if (!csOverlay || !csOverlay.superview) return;
-    CSOverlay *o = csOverlay;
-    o.userInteractionEnabled = NO;
+    CSOverlay *o = csOverlay; o.userInteractionEnabled = NO;
     double sp = CSClamp(C.openSpeed, 40, 250) / 100.0;
     [UIView animateWithDuration:0.18 / sp delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
         o.alpha = 0; if (C.openAnim) o.ring.transform = CGAffineTransformMakeScale(0.6, 0.6);
     } completion:^(BOOL f) {
-        if (o.alpha == 0) {
-            [o stopLink];
-            [o removeFromSuperview];
-            o.ring.transform = CGAffineTransformIdentity;
-        }
+        if (o.alpha == 0) { [o stopLink]; [o removeFromSuperview]; o.ring.transform = CGAffineTransformIdentity; }
     }];
-    csLog(@"overlay hidden");
-}
-
-static int csHookVis = -1;
-
-static NSArray<NSString *> *csProbeNames(Class cls) {
-    static NSMutableDictionary *cache;
-    if (!cache) cache = [NSMutableDictionary new];
-    NSString *key = NSStringFromClass(cls);
-    NSArray *hit = cache[key];
-    if (hit) return hit;
-    NSMutableArray *out = [NSMutableArray array];
-    for (Class k = cls; k && k != NSObject.class && k != UIViewController.class && k != UIResponder.class && k != UIView.class; k = class_getSuperclass(k)) {
-        unsigned n = 0;
-        Method *ms = class_copyMethodList(k, &n);
-        for (unsigned i = 0; i < n; i++) {
-            NSString *name = NSStringFromSelector(method_getName(ms[i]));
-            if ([name containsString:@":"]) continue;
-            char *rt = method_copyReturnType(ms[i]);
-            BOOL isBool = rt && (rt[0] == 'B' || rt[0] == 'c');
-            free(rt);
-            if (!isBool) continue;
-            NSString *l = name.lowercaseString;
-            if ([l containsString:@"visible"] || [l containsString:@"showing"] || [l containsString:@"presented"]) {
-                if (![out containsObject:name]) [out addObject:name];
-            }
-        }
-        free(ms);
-    }
-    cache[key] = out;
-    return out;
 }
 
 static int csDetectVisible(void) {
@@ -1502,37 +1542,23 @@ static int csDetectVisible(void) {
     NSMutableArray *objs = [NSMutableArray array];
     id coord = send0((id)NSClassFromString(@"SBMainSwitcherControllerCoordinator"), @"sharedInstance");
     if (coord) [objs addObject:coord];
-    if (ms) {
-        [objs addObject:ms];
-        @try { for (id c in [(UIViewController *)ms childViewControllers]) { if ([NSStringFromClass([c class]) rangeOfString:@"Switcher"].location != NSNotFound) [objs addObject:c]; } } @catch (NSException *e) {}
-    }
+    if (ms) [objs addObject:ms];
     if (!objs.count) return csHookVis;
-
     NSArray *known = @[@"isAnySwitcherVisible", @"isMainSwitcherVisible", @"isSwitcherVisible", @"isSwitcherShowing", @"isVisible"];
-    NSMutableString *sig = [NSMutableString string];
-    int result = -1;
     for (id o in objs) {
-        NSString *cn = NSStringFromClass([o class]);
-        NSMutableArray *names = [NSMutableArray array];
-        for (NSString *k in known) if ([o respondsToSelector:NSSelectorFromString(k)]) [names addObject:k];
-        for (NSString *k in csProbeNames([o class])) {
-            if (![names containsObject:k] && [k.lowercaseString containsString:@"switcher"]) [names addObject:k];
-        }
-        for (NSString *n in names) {
-            BOOL b = NO;
-            @try { b = ((BOOL (*)(id, SEL))objc_msgSend)(o, NSSelectorFromString(n)); } @catch (NSException *e) { continue; }
-            [sig appendFormat:@"%@.%@=%d ", cn, n, b];
-            if (result == -1) result = b ? 1 : 0;
+        for (NSString *n in known) {
+            if ([o respondsToSelector:NSSelectorFromString(n)]) {
+                BOOL b = NO;
+                @try { b = ((BOOL (*)(id, SEL))objc_msgSend)(o, NSSelectorFromString(n)); } @catch (NSException *e) { continue; }
+                return b ? 1 : 0;
+            }
         }
     }
-    if (result == -1 && csHookVis != -1) { result = csHookVis; [sig appendFormat:@"hookVis=%d ", csHookVis]; }
-    if (![sig isEqualToString:csLastSig]) { csLastSig = [sig copy]; csLog(@"switcher signals: %@", sig); }
-    return result;
+    return csHookVis;
 }
 
 static void csSyncOverlayImmediate(void) {
-    if (!C.enabled || C.mode != 2) return;
-    if (-[csBoot timeIntervalSinceNow] < 4) return;
+    if (!C.enabled || C.mode != 2 || -[csBoot timeIntervalSinceNow] < 4) return;
     if (csOverlay.superview && csOverlay.testMode) return;
     int vis = csDetectVisible();
     BOOL shown = csOverlay.superview != nil;
@@ -1540,48 +1566,15 @@ static void csSyncOverlayImmediate(void) {
     else if (vis == 0) { csForceHidden = NO; if (shown) csHideOverlay(); }
 }
 
-static NSString *csChain(Class k) {
-    NSMutableArray *a = [NSMutableArray array];
-    for (; k; k = class_getSuperclass(k)) [a addObject:NSStringFromClass(k)];
-    return [a componentsJoinedByString:@" < "];
-}
-
-static void csStaticDump(void) {
-    static BOOL done;
-    if (done) return;
-    done = YES;
-    csLog(@"=== STATIC DUMP iOS %@ arch=%s", UIDevice.currentDevice.systemVersion,
-#if __arm64e__
-          "arm64e"
-#else
-          "arm64"
-#endif
-    );
-    NSArray *names = @[@"SBSwitcherViewController", @"SBDeckSwitcherViewController", @"SBFluidSwitcherViewController",
-                       @"SBDeckSwitcherItemContainer", @"SBFluidSwitcherItemContainer", @"SBRecentAppLayouts",
-                       @"SBMainSwitcherControllerCoordinator", @"SBDeckSwitcherPersonality", @"SBAppLayout"];
-    for (NSString *cn in names) {
-        Class k = NSClassFromString(cn);
-        if (!k) { csLog(@"class %@ = nil", cn); continue; }
-        unsigned n = 0; Method *ms = class_copyMethodList(k, &n);
-        NSMutableArray *mn = [NSMutableArray array];
-        for (unsigned i = 0; i < n; i++) [mn addObject:NSStringFromSelector(method_getName(ms[i]))];
-        free(ms);
-        NSString *joined = [mn componentsJoinedByString:@" "];
-        if (joined.length > 6000) joined = [joined substringToIndex:6000];
-        csLog(@"class %@ chain: %@ | methods(%u): %@", cn, csChain(k), n, joined);
-    }
-}
-
-#pragma mark - Mode 0: True Circular Morph + @3x Glass Rim/Halo + Damped Spring Physics
+#pragma mark - Mode 0: True 1:1 Portal Square Clipping + GPU Liquid Glass + Full Touch Control
 
 #define CS_MARKER @"/var/mobile/Documents/CircleSwitcher.armed"
 static BOOL csTripped, csMarkerOn;
 static double csLastApply;
 static const void *kMineP = &kMineP, *kMineT = &kMineT, *kSysP = &kSysP, *kSysT = &kSysT, *kSysO = &kSysO, *kApplied = &kApplied, *kMineO = &kMineO, *kSysZ = &kSysZ;
 static const void *kCrispApplied = &kCrispApplied, *kOrigRast = &kOrigRast;
-static const void *kOrigMask = &kOrigMask, *kMaskSaved = &kMaskSaved, *kCircleMask = &kCircleMask, *kCircleRim = &kCircleRim;
-static const void *kGlassRimView = &kGlassRimView, *kHaloView = &kHaloView;
+static const void *kOrigPortalBounds = &kOrigPortalBounds, *kOrigPortalCenter = &kOrigPortalCenter, *kOrigPortalCR = &kOrigPortalCR, *kPortalSaved = &kPortalSaved;
+static const void *kGlassLensView = &kGlassLensView, *kHaloView = &kHaloView, *kCircleRim = &kCircleRim;
 static const void *kBlurFilter = &kBlurFilter, *kLastBlur = &kLastBlur;
 static const void *kStableSlot = &kStableSlot;
 
@@ -1593,6 +1586,7 @@ static int csM0Anim, csM0Count;
 static NSInteger csM0FrontSlot = -1;
 static CGRect csM0Hits[40];
 static double csM0Z[40];
+static UIView * __weak csM0SlotCards[40];
 static __weak UIViewController *csM0VC;
 static __weak UIScrollView *csM0ScrollView;
 static CADisplayLink *csM0Link;
@@ -1608,6 +1602,38 @@ static void csM0Buzz(void) {
 
 static void csDeckLayout(UIViewController *vc);
 
+// Find the actual hardware-backed SBAppSwitcherPageView / _UIPortalView inside SBFluidSwitcherItemContainer
+static UIView *csFindPortalPageView(UIView *card, int depth) {
+    if (!card || depth > 5) return nil;
+    for (UIView *sub in card.subviews) {
+        NSString *cn = NSStringFromClass(sub.class);
+        if ([cn rangeOfString:@"PageView"].location != NSNotFound ||
+            [cn rangeOfString:@"PortalView"].location != NSNotFound ||
+            [cn rangeOfString:@"SnapshotView"].location != NSNotFound ||
+            [cn rangeOfString:@"LiveContentView"].location != NSNotFound) {
+            return sub;
+        }
+        UIView *deeper = csFindPortalPageView(sub, depth + 1);
+        if (deeper) return deeper;
+    }
+    return nil;
+}
+
+// Extract real bundleID or localized title directly from SBFluidSwitcherItemContainer / SBAppLayout
+static NSString *csExtractCardBundleID(UIView *card) {
+    @try {
+        id lay = [card valueForKey:@"appLayout"];
+        if (lay) {
+            NSArray *items = send0(lay, @"allItems");
+            if ([items isKindOfClass:NSArray.class] && items.count) {
+                NSString *bid = send0(items.firstObject, @"bundleIdentifier");
+                if ([bid isKindOfClass:NSString.class] && bid.length) return bid;
+            }
+        }
+    } @catch (NSException *e) {}
+    return nil;
+}
+
 static void csSetScrollEnabled(UIView *root, BOOL enabled) {
     if (!csM0ScrollView && root) {
         for (UIView *sub in root.subviews) {
@@ -1620,6 +1646,26 @@ static void csSetScrollEnabled(UIView *root, BOOL enabled) {
     }
     if (csM0ScrollView && csM0ScrollView.scrollEnabled != enabled) {
         csM0ScrollView.scrollEnabled = enabled;
+    }
+}
+
+// Launch front app when user taps the center orb in Mode 0
+static void csM0OpenSlot(NSInteger slot) {
+    if (slot < 0 || slot >= 40) return;
+    UIView *card = csM0SlotCards[slot];
+    if (!card) return;
+    NSString *bid = csExtractCardBundleID(card);
+    if (bid.length) {
+        csM0Buzz();
+        openApp(bid);
+        return;
+    }
+    // Fallback: forward native touch/select to SBFluidSwitcherItemContainer
+    for (NSString *selName in @[@"_handleSelectionEvent:", @"_notifyDelegateOfSelection", @"handleTap:"]) {
+        SEL s = NSSelectorFromString(selName);
+        if ([card respondsToSelector:s]) {
+            @try { ((void (*)(id, SEL))objc_msgSend)(card, s); return; } @catch (NSException *e) {}
+        }
     }
 }
 
@@ -1645,33 +1691,22 @@ static void csSetScrollEnabled(UIView *root, BOOL enabled) {
     if (csM0Anim == 1) {
         CSSpringStep(&csM0Spring, dt, stiff, damp);
         csM0Rot = csM0Spring.pos;
-        if (!csM0Spring.active) {
-            csM0Rot = wrap360(csM0Rot);
-            csM0Anim = 0;
-            l.paused = YES;
-        }
+        if (!csM0Spring.active) { csM0Rot = wrap360(csM0Rot); csM0Anim = 0; l.paused = YES; }
     } else if (csM0Anim == 2) {
         csM0Rot += csM0Vel * dt;
         csM0Vel *= pow(0.935, dt * 60);
         if (fabs(csM0Vel) < 35) {
             double st = MAX(1.0, csM0Step);
-            csM0Spring.pos = csM0Rot;
-            csM0Spring.vel = csM0Vel; // seamless momentum handoff into damped spring
-            csM0Spring.target = round(csM0Rot / st) * st;
-            csM0Spring.active = YES;
+            csM0Spring.pos = csM0Rot; csM0Spring.vel = csM0Vel; csM0Spring.target = round(csM0Rot / st) * st; csM0Spring.active = YES;
             csM0Anim = 1;
         }
-    } else { l.paused = YES; }
+    } else l.paused = YES;
     csDeckLayout(csM0VC);
 }
 
 - (void)tweenTo:(double)to withVelocity:(double)vel {
-    csM0Spring.pos = csM0Rot;
-    csM0Spring.vel = vel;
-    csM0Spring.target = to;
-    csM0Spring.active = YES;
-    csM0Anim = 1;
-    [self startLink];
+    csM0Spring.pos = csM0Rot; csM0Spring.vel = vel; csM0Spring.target = to; csM0Spring.active = YES;
+    csM0Anim = 1; [self startLink];
 }
 
 - (void)snapWithVelocity:(double)vel {
@@ -1683,7 +1718,10 @@ static void csSetScrollEnabled(UIView *root, BOOL enabled) {
     NSInteger best = -1;
     double bestZ = -1e18;
     for (int j = 0; j < csM0Count && j < 40; j++) {
-        if (CGRectContainsPoint(csM0Hits[j], p) && csM0Z[j] > bestZ) { bestZ = csM0Z[j]; best = j; }
+        // Generous hit-box (+12pt) around each circular orb so touches never leak to SpringBoard Shelf (+)
+        if (CGRectContainsPoint(CGRectInset(csM0Hits[j], -12, -12), p) && csM0Z[j] > bestZ) {
+            bestZ = csM0Z[j]; best = j;
+        }
     }
     return best;
 }
@@ -1693,23 +1731,23 @@ static void csSetScrollEnabled(UIView *root, BOOL enabled) {
     UIView *v = g.view;
     if (!v) return NO;
     CGSize sz = v.bounds.size;
+    UIEdgeInsets safe = csSafeInsets();
     CGPoint pt = [g locationInView:v];
-    if (pt.y > sz.height - 44 || pt.y < 54) return NO;
+    if (pt.y > sz.height - MAX(30.0, safe.bottom) - 10 || pt.y < MAX(44.0, safe.top) + 10) return NO;
 
     if ([g isKindOfClass:UIPanGestureRecognizer.class]) {
         CGPoint vel = [(UIPanGestureRecognizer *)g velocityInView:v];
-        return fabs(vel.x) > fabs(vel.y) * 1.1;
+        return fabs(vel.x) > fabs(vel.y) * 0.95;
     }
     if ([g isKindOfClass:UITapGestureRecognizer.class]) {
-        NSInteger slot = [self hitSlotAt:pt];
-        return (slot >= 0 && slot != csM0FrontSlot);
+        // Intercept taps on ALL orbs (both side orbs to rotate AND center orb to launch cleanly without triggering '+' Shelf)
+        return [self hitSlotAt:pt] >= 0;
     }
     return NO;
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)g shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
-    if ([g isKindOfClass:UIPanGestureRecognizer.class] && [other.view isKindOfClass:UIScrollView.class]) return NO;
-    return YES;
+    return NO;
 }
 
 - (void)onPan:(UIPanGestureRecognizer *)g {
@@ -1735,7 +1773,10 @@ static void csSetScrollEnabled(UIView *root, BOOL enabled) {
     if (g.state != UIGestureRecognizerStateEnded || !csM0Active) return;
     CGPoint pt = [g locationInView:g.view];
     NSInteger slot = [self hitSlotAt:pt];
-    if (slot >= 0 && slot != csM0FrontSlot) {
+    if (slot < 0) return;
+    if (slot == csM0FrontSlot) {
+        csM0OpenSlot(slot);
+    } else {
         double step = MAX(1.0, csM0Step);
         double target = csM0Rot + normDeg(slot * step - csM0Rot);
         [self tweenTo:target withVelocity:0];
@@ -1770,9 +1811,11 @@ static BOOL csIsHeaderClass(NSString *n) {
            [n rangeOfString:@"IconImageContainer"].location != NSNotFound ||
            [n rangeOfString:@"TitleView"].location != NSNotFound ||
            [n rangeOfString:@"AppExpose"].location != NSNotFound ||
-           [n rangeOfString:@"Shelf"].location != NSNotFound;
+           [n rangeOfString:@"Shelf"].location != NSNotFound ||
+           [n rangeOfString:@"AccessoryView"].location != NSNotFound;
 }
 
+// Aggressively hide floating iOS app icon/title headers inside cards so they never detach & float in top-right
 static void csSuppressSwitcherHeaders(UIView *v, int depth, BOOL hide) {
     if (!v || depth > 8) return;
     NSString *n = NSStringFromClass(v.class);
@@ -1786,7 +1829,9 @@ static void csSuppressSwitcherHeaders(UIView *v, int depth, BOOL hide) {
         }
         return;
     }
-    if ([n rangeOfString:@"SnapshotView"].location != NSNotFound || [n rangeOfString:@"LiveContentView"].location != NSNotFound) return;
+    if ([n rangeOfString:@"SnapshotView"].location != NSNotFound ||
+        [n rangeOfString:@"LiveContentView"].location != NSNotFound ||
+        [n rangeOfString:@"PortalView"].location != NSNotFound) return;
     for (UIView *sub in v.subviews) {
         csSuppressSwitcherHeaders(sub, depth + 1, hide);
     }
@@ -1804,7 +1849,7 @@ static void csCollect(UIView *v, int d, NSMutableArray *cards, NSMutableArray *h
 }
 
 static void csApplyCrispness(UIView *v, int depth, BOOL enable) {
-    if (!v || depth > 2) return;
+    if (!v || depth > 3) return;
     CALayer *L = v.layer;
     CGFloat sc = csScreenScale();
     if (enable) {
@@ -1816,16 +1861,12 @@ static void csApplyCrispness(UIView *v, int depth, BOOL enable) {
         if (L.contentsScale < sc) L.contentsScale = sc;
         L.minificationFilter = kCAFilterTrilinear;
         L.magnificationFilter = kCAFilterLinear;
-    } else {
-        if ([objc_getAssociatedObject(v, kCrispApplied) boolValue]) {
-            NSNumber *orig = objc_getAssociatedObject(v, kOrigRast);
-            if (orig) L.shouldRasterize = orig.boolValue;
-            objc_setAssociatedObject(v, kCrispApplied, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
+    } else if ([objc_getAssociatedObject(v, kCrispApplied) boolValue]) {
+        NSNumber *orig = objc_getAssociatedObject(v, kOrigRast);
+        if (orig) L.shouldRasterize = orig.boolValue;
+        objc_setAssociatedObject(v, kCrispApplied, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    for (UIView *sub in v.subviews) {
-        csApplyCrispness(sub, depth + 1, enable);
-    }
+    for (UIView *sub in v.subviews) csApplyCrispness(sub, depth + 1, enable);
 }
 
 static void csApplyCardMotionBlur(UIView *c, double radius) {
@@ -1834,10 +1875,7 @@ static void csApplyCardMotionBlur(UIView *c, double radius) {
         NSNumber *prev = objc_getAssociatedObject(c, kLastBlur);
         if (prev && fabs(prev.doubleValue - radius) < 0.08) return;
         objc_setAssociatedObject(c, kLastBlur, @(radius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        if (radius < 0.15) {
-            if (L.filters) L.filters = nil;
-            return;
-        }
+        if (radius < 0.15) { if (L.filters) L.filters = nil; return; }
         id f = objc_getAssociatedObject(c, kBlurFilter);
         if (!f) {
             f = send1((id)NSClassFromString(@"CAFilter"), @"filterWithType:", @"gaussianBlur");
@@ -1872,8 +1910,7 @@ static CSSys csCapture(UIView *c) {
     s.pos = spv.CGPointValue; s.t = stv.CATransform3DValue;
     NSNumber *so = objc_getAssociatedObject(c, kSysO);
     NSNumber *sz = objc_getAssociatedObject(c, kSysZ);
-    s.op = so ? so.doubleValue : 1.0;
-    s.z = sz ? sz.doubleValue : 0.0;
+    s.op = so ? so.doubleValue : 1.0; s.z = sz ? sz.doubleValue : 0.0;
     if (!isfinite(s.pos.x) || !isfinite(s.pos.y)) return s;
     CGAffineTransform st = CATransform3DGetAffineTransform(s.t);
     s.sc = hypot(st.a, st.b);
@@ -1884,87 +1921,107 @@ static CSSys csCapture(UIView *c) {
 
 static const void *kHid = &kHid;
 
-// Smooth circular morph + @3x Liquid Glass Rim & Outer Halo overlay + Cached CGPath
-static void csSetCircleMorph(UIView *c, BOOL on, double kMorph, double highlightK) {
-    CALayer *L = c.layer;
-    CAShapeLayer *mine = objc_getAssociatedObject(c, kCircleMask);
-    CAShapeLayer *rim = objc_getAssociatedObject(c, kCircleRim);
-    UIImageView *glassView = objc_getAssociatedObject(c, kGlassRimView);
+// CRITICAL FIX FOR VIDEO BUGS #1 & #2:
+// Morph SBAppSwitcherPageView / _UIPortalView directly to a true 1:1 square (curH == bw)
+// and enforce hardware layer.cornerRadius = bw / 2 + masksToBounds = YES so _UIPortalView
+// clips into a razor-sharp circle instead of staying a tall rectangle or pinching into a vertical line!
+static void csSetCircleMorph(UIView *c, BOOL on, double kMorph, double highlightK, double phase) {
+    UIView *pageView = csFindPortalPageView(c, 0) ?: c;
+    CALayer *PL = pageView.layer;
+    CSGlassLensView *lensView = objc_getAssociatedObject(c, kGlassLensView);
     UIImageView *haloView = objc_getAssociatedObject(c, kHaloView);
+    CAShapeLayer *rim = objc_getAssociatedObject(c, kCircleRim);
 
     if (!on || kMorph <= 0.01) {
-        if ([objc_getAssociatedObject(c, kMaskSaved) boolValue]) {
-            L.mask = objc_getAssociatedObject(c, kOrigMask);
-            objc_setAssociatedObject(c, kOrigMask, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(c, kMaskSaved, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        } else if (mine && L.mask == mine) {
-            L.mask = nil;
+        if ([objc_getAssociatedObject(pageView, kPortalSaved) boolValue]) {
+            NSValue *ob = objc_getAssociatedObject(pageView, kOrigPortalBounds);
+            NSValue *oc = objc_getAssociatedObject(pageView, kOrigPortalCenter);
+            NSNumber *ocr = objc_getAssociatedObject(pageView, kOrigPortalCR);
+            if (ob) pageView.bounds = ob.CGRectValue;
+            if (oc) pageView.center = oc.CGPointValue;
+            if (ocr) PL.cornerRadius = ocr.doubleValue;
+            objc_setAssociatedObject(pageView, kPortalSaved, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        if (rim) rim.hidden = YES;
-        if (glassView) glassView.hidden = YES;
+        if (lensView) lensView.hidden = YES;
         if (haloView) haloView.hidden = YES;
+        if (rim) rim.hidden = YES;
         return;
-    }
-
-    if (![objc_getAssociatedObject(c, kMaskSaved) boolValue]) {
-        objc_setAssociatedObject(c, kOrigMask, L.mask, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        objc_setAssociatedObject(c, kMaskSaved, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 
     CGFloat bw = c.bounds.size.width, bh = c.bounds.size.height;
     if (bw < 1 || bh < 1) return;
 
-    if (!mine) {
-        mine = [CAShapeLayer layer];
-        mine.fillColor = UIColor.blackColor.CGColor;
-        mine.contentsScale = csScreenScale();
-        objc_setAssociatedObject(c, kCircleMask, mine, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (![objc_getAssociatedObject(pageView, kPortalSaved) boolValue]) {
+        objc_setAssociatedObject(pageView, kOrigPortalBounds, [NSValue valueWithCGRect:pageView.bounds], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(pageView, kOrigPortalCenter, [NSValue valueWithCGPoint:pageView.center], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(pageView, kOrigPortalCR, @(PL.cornerRadius), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(pageView, kPortalSaved, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+
+    // Quintic smoothstep for fluid morph from full screen to 1:1 square orb
+    double t = CSClamp(kMorph, 0.0, 1.0);
+    double ts = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    CGFloat curH = bh + (bw - bh) * ts;
+    CGFloat cr = 47.0 + (bw * 0.5 - 47.0) * ts;
+    if (cr > curH * 0.5) cr = curH * 0.5;
+
+    // Enforce 1:1 square geometry + hardware cornerRadius directly on the portal container
+    if (pageView != c) {
+        pageView.bounds = CGRectMake(0, 0, bw, curH);
+        pageView.center = CGPointMake(bw * 0.5, bh * 0.5);
+    }
+    PL.cornerRadius = cr;
+    PL.masksToBounds = YES;
+    if ([PL respondsToSelector:@selector(setCornerCurve:)]) {
+        PL.cornerCurve = (ts > 0.85) ? kCACornerCurveCircular : kCACornerCurveContinuous;
+    }
+    for (UIView *sub in pageView.subviews) {
+        sub.layer.cornerRadius = cr;
+        sub.layer.masksToBounds = YES;
+    }
+
+    CGRect orbRect = CGRectMake(0, (bh - curH) * 0.5, bw, curH);
+
+    // 1. GPU Metal Liquid Glass / @3x Specular Rim Overlay
+    if (C.glassOverlay) {
+        if (!lensView) {
+            lensView = [[CSGlassLensView alloc] initWithFrame:orbRect];
+            objc_setAssociatedObject(c, kGlassLensView, lensView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (lensView.superview != pageView) {
+            lensView.frame = CGRectMake(0, 0, bw, curH);
+            [pageView addSubview:lensView];
+        } else {
+            lensView.frame = CGRectMake(0, 0, bw, curH);
+        }
+        lensView.hidden = NO;
+        lensView.alpha = (CGFloat)ts;
+        if (pageView.subviews.lastObject != lensView) [pageView bringSubviewToFront:lensView];
+        [lensView renderWithFocus:highlightK phase:phase];
+    } else if (lensView) {
+        lensView.hidden = YES;
+    }
+
+    // 2. Crisp Luminous Border Stroke
     if (!rim) {
         rim = [CAShapeLayer layer];
         rim.fillColor = UIColor.clearColor.CGColor;
         rim.contentsScale = csScreenScale();
-        [L addSublayer:rim];
         objc_setAssociatedObject(c, kCircleRim, rim, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
+    if (rim.superlayer != PL) [PL addSublayer:rim];
+    rim.hidden = NO;
+    rim.frame = CGRectMake(0, 0, bw, curH);
+    UIBezierPath *bp = [UIBezierPath bezierPathWithRoundedRect:rim.bounds cornerRadius:cr];
+    rim.path = bp.CGPath;
+    if (PL.sublayers.lastObject != rim) [PL addSublayer:rim];
+    UIColor *glowCol = C.ringGlow
+        ? [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.55 brightness:1.0 alpha:(0.48 + 0.48 * highlightK) * ts]
+        : [UIColor colorWithWhite:1.0 alpha:(0.38 + 0.45 * highlightK) * ts];
+    rim.strokeColor = glowCol.CGColor;
+    rim.lineWidth = (2.6 + 2.8 * highlightK) * (bw / 100.0);
 
-    // Quintic smoothstep for silkier interactive morph progression
-    double t = CSClamp(kMorph, 0.0, 1.0);
-    double ts = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-    CGFloat curH = bh + (bw - bh) * ts;
-    CGFloat yOff = (bh - curH) * 0.5;
-    CGRect targetRect = CGRectMake(0, yOff, bw, curH);
-    CGFloat cr = 47.0 + (bw * 0.5 - 47.0) * ts;
-    if (cr > curH * 0.5) cr = curH * 0.5;
-
-    CGPathRef cachedUnitPath = csCachedRoundedPath(bw, curH, cr);
-    CGAffineTransform shift = CGAffineTransformMakeTranslation(0, yOff);
-    CGPathRef path = CGPathCreateCopyByTransformingPath(cachedUnitPath, &shift);
-
-    mine.frame = c.bounds;
-    mine.path = path;
-    if (L.mask != mine) L.mask = mine;
-
-    // @3x Liquid Glass Rim asset overlay
-    UIImage *glassImg = C.glassOverlay ? csLoadAsset(@"glass_rim", NO) : nil;
-    if (glassImg) {
-        if (!glassView) {
-            glassView = [UIImageView new];
-            glassView.image = glassImg;
-            glassView.contentMode = UIViewContentModeScaleToFill;
-            glassView.userInteractionEnabled = NO;
-            [c addSubview:glassView];
-            objc_setAssociatedObject(c, kGlassRimView, glassView, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-        glassView.hidden = NO;
-        glassView.frame = targetRect;
-        glassView.alpha = (CGFloat)(ts * (0.72 + 0.28 * highlightK));
-        if (c.subviews.lastObject != glassView) [c bringSubviewToFront:glassView];
-    } else if (glassView) {
-        glassView.hidden = YES;
-    }
-
-    // @3x Radial Orb Halo asset behind card
+    // 3. Soft Radial Orb Halo behind each circular app
     UIImage *haloImg = C.ringGlow ? csLoadAsset(@"orb_halo", YES) : nil;
     if (haloImg && c.superview) {
         if (!haloView) {
@@ -1979,26 +2036,13 @@ static void csSetCircleMorph(UIView *c, BOOL on, double kMorph, double highlight
         haloView.tintColor = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.60 brightness:1.0 alpha:1.0];
         CGFloat haloDia = bw * 1.44;
         haloView.bounds = CGRectMake(0, 0, haloDia, haloDia);
-        haloView.layer.position = L.position;
-        haloView.layer.transform = L.transform;
-        haloView.layer.zPosition = L.zPosition - 0.5;
+        haloView.layer.position = c.layer.position;
+        haloView.layer.transform = c.layer.transform;
+        haloView.layer.zPosition = c.layer.zPosition - 0.5;
         haloView.alpha = (CGFloat)(ts * (0.20 + 0.72 * highlightK) * (C.glowAmt / 100.0));
     } else if (haloView) {
         haloView.hidden = YES;
     }
-
-    // Glowing crisp rim stroke
-    rim.hidden = NO;
-    rim.frame = c.bounds;
-    rim.path = path;
-    if (L.sublayers.lastObject != rim) [L addSublayer:rim];
-    UIColor *glowCol = C.ringGlow
-        ? [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.55 brightness:1.0 alpha:(0.45 + 0.50 * highlightK) * ts]
-        : [UIColor colorWithWhite:1.0 alpha:(0.35 + 0.45 * highlightK) * ts];
-    rim.strokeColor = glowCol.CGColor;
-    rim.lineWidth = (2.4 + 3.0 * highlightK) * (bw / 100.0);
-
-    if (path) CGPathRelease(path);
 }
 
 static const void *kNeon = &kNeon;
@@ -2011,7 +2055,6 @@ static void csSetNeon(UIView *c, BOOL on, double k) {
     UIColor *g = [UIColor colorWithHue:fmod(C.glowHue, 360.0) / 360.0 saturation:0.55 brightness:1 alpha:1];
     L.shadowColor = g.CGColor; L.shadowOffset = CGSizeZero;
     L.shadowRadius = 10 + 14 * k; L.shadowOpacity = (float)((0.2 + 0.7 * k) * C.glowAmt / 100.0);
-    L.shadowPath = csCachedRoundedPath(c.bounds.size.width, c.bounds.size.height, C.cardCorner);
     objc_setAssociatedObject(c, kNeon, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
@@ -2022,29 +2065,19 @@ static void csHideHead(UIView *h, BOOL hide) {
         if (!h.hidden) h.hidden = YES;
         if (h.alpha > 0.001) h.alpha = 0;
     } else if (was) {
-        h.hidden = NO;
-        h.alpha = 1;
+        h.hidden = NO; h.alpha = 1;
         objc_setAssociatedObject(h, kHid, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 }
 
-static NSString *csTitleOf(UIView *v, int d) {
-    if (d > 6) return nil;
-    if ([v isKindOfClass:UILabel.class]) {
-        NSString *tx = ((UILabel *)v).text;
-        if (tx.length && [tx rangeOfString:@"Bubble"].location == NSNotFound) return tx;
-    }
-    for (UIView *x in v.subviews) { NSString *t = csTitleOf(x, d + 1); if (t) return t; }
-    return nil;
-}
-
 static CSLabel *csNameL;
-static void csShowName(NSString *t, CGPoint c) {
-    if (!t.length || C.namePos == 3) { csNameL.hidden = YES; return; }
+static void csShowName(NSString *bid, CGPoint c) {
+    if (!bid.length || C.namePos == 3) { csNameL.hidden = YES; return; }
     if (!ensureWindow()) return;
+    CSItem *it = itemFor(bid);
     if (!csNameL) {
         csNameL = [CSLabel new]; csNameL.userInteractionEnabled = NO;
-        csNameL.textColor = UIColor.whiteColor; csNameL.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+        csNameL.textColor = UIColor.whiteColor;
         csNameL.layer.cornerRadius = 14;
         [csRoot.view addSubview:csNameL];
     }
@@ -2063,9 +2096,11 @@ static void csShowName(NSString *t, CGPoint c) {
         csNameL.layer.shadowRadius = 4;
         csNameL.layer.shadowOffset = CGSizeZero;
     }
-    if (![csNameL.text isEqualToString:t]) { csNameL.text = t; [csNameL sizeToFit]; }
+    csNameL.attributedText = labelFor(it);
+    [csNameL sizeToFit];
     CGSize sz = csNameL.bounds.size;
-    CGFloat minY = 112.0;
+    UIEdgeInsets safe = csSafeInsets();
+    CGFloat minY = MAX(44.0, safe.top) + 56.0;
     CGFloat x = csSnapPx(c.x - sz.width / 2.0);
     CGFloat y = csSnapPx(MAX(minY, c.y - sz.height / 2.0));
     csNameL.frame = CGRectMake(x, y, sz.width, sz.height);
@@ -2074,7 +2109,7 @@ static void csShowName(NSString *t, CGPoint c) {
 
 static void csRestore(UIView *c, CSSys s) {
     if (![objc_getAssociatedObject(c, kApplied) boolValue]) return;
-    csSetCircleMorph(c, NO, 0, 0);
+    csSetCircleMorph(c, NO, 0, 0, 0);
     csSetNeon(c, NO, 0);
     csApplyCrispness(c, 0, NO);
     csApplyCardMotionBlur(c, 0);
@@ -2137,6 +2172,7 @@ static void csDeckLayout(UIViewController *vc) {
         int n = (int)MIN((NSUInteger)40, cards.count);
         if (n > 0) {
             double W = UIScreen.mainScreen.bounds.size.width;
+            double H = UIScreen.mainScreen.bounds.size.height;
             CSSys sy[40]; double bw[40], ssc[40], newX[40], newY[40], ratio[40], cardZ[40];
             BOOL vis[40], act[40]; int order[40], m = 0;
             for (int i = 0; i < n; i++) {
@@ -2145,8 +2181,7 @@ static void csDeckLayout(UIViewController *vc) {
                 bw[i] = MAX(1, c.bounds.size.width);
                 ssc[i] = sy[i].sc * bw[i] / W;
                 vis[i] = sy[i].ok && !c.hidden && sy[i].op > 0.01 && ssc[i] > 0.02;
-                act[i] = NO;
-                cardZ[i] = -1e9;
+                act[i] = NO; cardZ[i] = -1e9;
                 if (vis[i]) order[m++] = i;
             }
 
@@ -2181,14 +2216,12 @@ static void csDeckLayout(UIViewController *vc) {
                     if (d < bestCtr) { bestCtr = d; ctr = j; }
                 }
                 double step = capM > 0 ? (360.0 / capM) : 360.0;
-                csM0Step = step;
-                csM0Count = capM;
+                csM0Step = step; csM0Count = capM;
 
                 double avgK = 0;
                 for (int j = 0; j < capM; j++) avgK += clampd((0.92 - ssc[order[j]]) / 0.30, 0, 1);
                 avgK /= MAX(1, capM);
 
-                // Velocity-coupled motion blur & dynamic swipe banking
                 double nowTs = CACurrentMediaTime();
                 double dt = csM0LastTs > 0 ? clampd(nowTs - csM0LastTs, 0.004, 0.05) : 0.016;
                 csM0LastTs = nowTs;
@@ -2202,54 +2235,45 @@ static void csDeckLayout(UIViewController *vc) {
                 double morphVel = dK / dt;
                 double targetBlur = 0;
                 if (C.motionBlurOn) {
-                    double spinFactor = clampd((spinVel - 35.0) / 460.0, 0.0, 1.0);
+                    double spinFactor = clampd((spinVel - 45.0) / 480.0, 0.0, 1.0);
                     double morphFactor = (avgK > 0.03 && avgK < 0.97) ? clampd(morphVel / 2.2, 0.0, 1.0) : 0.0;
                     targetBlur = C.moveBlur * MAX(spinFactor, morphFactor * 0.95);
                 }
                 if (targetBlur < 0.08 && csM0SmoothBlur < 0.18) csM0SmoothBlur = 0;
                 else csM0SmoothBlur = csM0SmoothBlur * 0.42 + targetBlur * 0.58;
 
-                double targetBank = C.velTilt ? CSClamp((signedDRot / dt) * 0.00024, -0.105, 0.105) : 0.0;
+                double targetBank = C.velTilt ? CSClamp((signedDRot / dt) * 0.00022, -0.09, 0.09) : 0.0;
                 csM0SmoothBank = csM0SmoothBank * 0.60 + targetBank * 0.40;
                 if (fabs(csM0SmoothBank) < 0.002) csM0SmoothBank = 0;
 
                 if (avgK > 0.06 && !csM0Active) {
                     csM0Active = YES;
-                    csM0Rot = ctr * step;
-                    csM0LastRot = csM0Rot;
-                    csM0Anim = 0;
-                    csM0Spring.active = NO;
-                    csM0FrontSlot = ctr;
+                    csM0Rot = ctr * step; csM0LastRot = csM0Rot; csM0Anim = 0; csM0Spring.active = NO; csM0FrontSlot = ctr;
                     for (int j = 0; j < capM; j++) {
                         objc_setAssociatedObject(cards[order[j]], kStableSlot, @(j), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                     }
                     csSetScrollEnabled(vc.view, NO);
                 } else if (avgK <= 0.06 && csM0Active) {
-                    csM0Active = NO;
-                    csM0Anim = 0;
-                    csM0Spring.active = NO;
-                    csM0FrontSlot = -1;
-                    csM0SmoothBlur = 0;
-                    csM0SmoothBank = 0;
+                    csM0Active = NO; csM0Anim = 0; csM0Spring.active = NO; csM0FrontSlot = -1;
+                    csM0SmoothBlur = 0; csM0SmoothBank = 0;
                     csSetScrollEnabled(vc.view, YES);
                 }
 
-                CSRingCfg cfg = csCfgWithBank(csM0SmoothBank);
+                CSRingCfg cfg = csCfgWithBank(csM0SmoothBank, W, H);
                 BOOL circ = C.style <= 1;
                 int frontIdx = -1;
                 NSInteger newFrontSlot = -1;
                 double bestPhi = 1e9;
 
+                for (int j = 0; j < 40; j++) csM0SlotCards[j] = nil;
+
                 for (int j = 0; j < m; j++) {
                     int i = order[j]; UIView *c = cards[i];
-                    if (j >= capM) {
-                        csRestore(c, sy[i]);
-                        c.alpha = 0;
-                        continue;
-                    }
+                    if (j >= capM) { csRestore(c, sy[i]); c.alpha = 0; continue; }
                     double k = clampd((0.92 - ssc[i]) / 0.30, 0, 1);
                     if (k < 0.001) { csRestore(c, sy[i]); continue; }
 
+                    csM0SlotCards[j] = c;
                     double phi = normDeg(j * step - csM0Rot);
                     if (fabs(phi) < bestPhi) { bestPhi = fabs(phi); frontIdx = i; newFrontSlot = j; }
 
@@ -2270,7 +2294,6 @@ static void csDeckLayout(UIViewController *vc) {
                     if (!isfinite(pos.x) || !isfinite(pos.y) || !isfinite(f) || f <= 0.001 || !isfinite(p.z) || !isfinite(p.opacity)) continue;
 
                     csApplyCrispness(c, 0, C.crispText);
-
                     double distBlur = (C.style >= 1) ? C.blur * MIN(1.0, fabs(phi) / 110.0) * k : 0;
                     csApplyCardMotionBlur(c, csM0SmoothBlur + distBlur);
 
@@ -2282,15 +2305,14 @@ static void csDeckLayout(UIViewController *vc) {
                     L.zPosition = zz;
                     L.doubleSided = cos(effYaw) >= 0;
 
-                    csSetCircleMorph(c, circ && C.snapCircle, k, p.k);
+                    csSetCircleMorph(c, circ && C.snapCircle, k, p.k, csM0SmoothBank * 4.0 + phi * 0.02);
                     csSetNeon(c, C.style == 3 && C.ringGlow && k > 0.05, p.k * k);
                     csStamp(c);
 
                     double hw = (bw[i] * f) / 2.0;
                     double hh = circ ? hw : (c.bounds.size.height * f) / 2.0;
                     csM0Hits[j] = CGRectMake(scr.x - hw, scr.y - hh, hw * 2, hh * 2);
-                    csM0Z[j] = zz;
-                    cardZ[i] = zz;
+                    csM0Z[j] = zz; cardZ[i] = zz;
 
                     csLastApply = CACurrentMediaTime();
                     act[i] = YES; newX[i] = scr.x; newY[i] = scr.y;
@@ -2317,35 +2339,24 @@ static void csDeckLayout(UIViewController *vc) {
                         UIView *cv = cards[zOrd[a]];
                         if (cv.superview) {
                             UIImageView *hv = objc_getAssociatedObject(cv, kHaloView);
-                            if (hv && !hv.hidden && hv.superview == cv.superview) {
-                                [cv.superview bringSubviewToFront:hv];
-                            }
-                            if (cv.superview.subviews.lastObject != cv) {
-                                [cv.superview bringSubviewToFront:cv];
-                            }
+                            if (hv && !hv.hidden && hv.superview == cv.superview) [cv.superview bringSubviewToFront:hv];
+                            if (cv.superview.subviews.lastObject != cv) [cv.superview bringSubviewToFront:cv];
                         }
                     }
                 }
 
+                // Hide ALL floating iOS headers & icon containers so nothing floats detached in top-right
                 csSuppressSwitcherHeaders(vc.view, 0, any);
+                for (UIView *c in cards) csSuppressSwitcherHeaders(c, 0, any);
                 int hn = (int)MIN((NSUInteger)80, heads.count);
-                NSString *frontName = nil;
-                for (int q = 0; q < hn; q++) {
-                    UIView *h = heads[q];
-                    if (!any) { csHideHead(h, NO); continue; }
-                    csHideHead(h, YES);
-                    if (frontIdx >= 0 && !frontName && h.window && [h isDescendantOfView:cards[frontIdx]]) {
-                        frontName = csTitleOf(h, 0);
-                    }
-                }
-                if (any && frontIdx >= 0 && !frontName) {
-                    frontName = csTitleOf(cards[frontIdx], 0);
-                }
+                for (int q = 0; q < hn; q++) csHideHead(heads[q], any);
+
                 if (any && frontIdx >= 0) {
+                    NSString *frontBID = csExtractCardBundleID(cards[frontIdx]);
                     double dia = ratio[frontIdx] * ssc[frontIdx] * W;
-                    double hh = circ ? dia : dia * (UIScreen.mainScreen.bounds.size.height / W);
-                    double ly = C.namePos == 0 ? newY[frontIdx] - hh / 2 - 22 : (C.namePos == 1 ? newY[frontIdx] : newY[frontIdx] + hh / 2 + 26);
-                    csShowName(frontName, CGPointMake(newX[frontIdx], ly));
+                    double hh = circ ? dia : dia * (H / W);
+                    double ly = C.namePos == 0 ? newY[frontIdx] - hh / 2 - 24 : (C.namePos == 1 ? newY[frontIdx] : newY[frontIdx] + hh / 2 + 28);
+                    csShowName(frontBID, CGPointMake(newX[frontIdx], ly));
                 } else if (csNameL) {
                     csNameL.hidden = YES;
                 }
@@ -2370,7 +2381,6 @@ static void csTick(void) {
     csGuardTick();
     if (!C.enabled || C.mode != 2) {
         if (csOverlay.superview && !csOverlay.testMode) csHideOverlay();
-        if (C.enabled && C.mode == 1 && -[csBoot timeIntervalSinceNow] > 10) csStaticDump();
         return;
     }
     if (-[csBoot timeIntervalSinceNow] < 4) return;
@@ -2413,26 +2423,14 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     });
 }
 
-#pragma mark - Hooks
+#pragma mark - SpringBoard Hooks (iOS 14 -> iOS 18+)
 
 %group FluidHook
 %hook SBFluidSwitcherViewController
-- (void)viewDidLayoutSubviews {
-    %orig;
-    csDeckLayout((UIViewController *)self);
-}
-- (void)viewWillAppear:(BOOL)animated {
-    %orig;
-    csHookVis = 1;
-    csSyncOverlayImmediate();
-}
+- (void)viewDidLayoutSubviews { %orig; csDeckLayout((UIViewController *)self); }
+- (void)viewWillAppear:(BOOL)animated { %orig; csHookVis = 1; csSyncOverlayImmediate(); }
 - (void)viewDidDisappear:(BOOL)animated {
-    %orig;
-    csHookVis = 0;
-    csM0Active = NO;
-    csM0Spring.active = NO;
-    csM0SmoothBlur = 0;
-    csM0SmoothBank = 0;
+    %orig; csHookVis = 0; csM0Active = NO; csM0Spring.active = NO; csM0SmoothBlur = 0; csM0SmoothBank = 0;
     csSetScrollEnabled(((UIViewController *)self).view, YES);
     csSuppressSwitcherHeaders(((UIViewController *)self).view, 0, NO);
     if (csNameL) csNameL.hidden = YES;
@@ -2443,31 +2441,16 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
 
 %group FluidScroll
 %hook SBFluidSwitcherViewController
-- (void)scrollViewDidScroll:(UIScrollView *)sv {
-    %orig;
-    csDeckLayout((UIViewController *)self);
-}
+- (void)scrollViewDidScroll:(UIScrollView *)sv { %orig; csDeckLayout((UIViewController *)self); }
 %end
 %end
 
 %group DeckHook
 %hook SBDeckSwitcherViewController
-- (void)viewDidLayoutSubviews {
-    %orig;
-    csDeckLayout((UIViewController *)self);
-}
-- (void)viewWillAppear:(BOOL)animated {
-    %orig;
-    csHookVis = 1;
-    csSyncOverlayImmediate();
-}
+- (void)viewDidLayoutSubviews { %orig; csDeckLayout((UIViewController *)self); }
+- (void)viewWillAppear:(BOOL)animated { %orig; csHookVis = 1; csSyncOverlayImmediate(); }
 - (void)viewDidDisappear:(BOOL)animated {
-    %orig;
-    csHookVis = 0;
-    csM0Active = NO;
-    csM0Spring.active = NO;
-    csM0SmoothBlur = 0;
-    csM0SmoothBank = 0;
+    %orig; csHookVis = 0; csM0Active = NO; csM0Spring.active = NO; csM0SmoothBlur = 0; csM0SmoothBank = 0;
     csSetScrollEnabled(((UIViewController *)self).view, YES);
     csSuppressSwitcherHeaders(((UIViewController *)self).view, 0, NO);
     if (csNameL) csNameL.hidden = YES;
@@ -2478,10 +2461,7 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
 
 %group DeckScroll
 %hook SBDeckSwitcherViewController
-- (void)scrollViewDidScroll:(UIScrollView *)sv {
-    %orig;
-    csDeckLayout((UIViewController *)self);
-}
+- (void)scrollViewDidScroll:(UIScrollView *)sv { %orig; csDeckLayout((UIViewController *)self); }
 %end
 %end
 
@@ -2489,8 +2469,25 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
 %hook SBFluidSwitcherItemContainer
 - (void)layoutSubviews {
     %orig;
-    if (csM0Active && csM0VC) {
-        csDeckLayout(csM0VC);
+    if (csM0Active) {
+        csSuppressSwitcherHeaders((UIView *)self, 0, YES);
+        if (csM0VC) csDeckLayout(csM0VC);
+    }
+}
+%end
+%end
+
+%group PageViewHook
+%hook SBAppSwitcherPageView
+- (void)layoutSubviews {
+    %orig;
+    if (csM0Active && C.snapCircle && C.style <= 1) {
+        UIView *v = (UIView *)self;
+        CGFloat w = v.bounds.size.width;
+        if (w > 1) {
+            v.layer.cornerRadius = w * 0.5;
+            v.layer.masksToBounds = YES;
+        }
     }
 }
 %end
@@ -2503,7 +2500,6 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     csBubbles = [NSMutableArray new];
     csBoot = [NSDate date];
     loadCfg();
-    csLog(@"CircleSwitcher v1.5.0 loaded in %@", NSBundle.mainBundle.bundleIdentifier);
 
     if ([NSFileManager.defaultManager fileExistsAtPath:CS_MARKER]) {
         csTripped = YES;
@@ -2512,7 +2508,6 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
         CFPreferencesSetAppValue(CFSTR("mode"), nm, CS_DOMAIN); CFRelease(nm);
         CFPreferencesAppSynchronize(CS_DOMAIN);
         loadCfg();
-        csLog(@"CRASH GUARD: SpringBoard died during startup -> mode set to 3 (inert)");
         return;
     }
     [@"1" writeToFile:CS_MARKER atomically:NO encoding:NSUTF8StringEncoding error:nil];
@@ -2525,17 +2520,17 @@ static void csRespringNote(CFNotificationCenterRef c, void *o, CFStringRef n, co
     Class fluid = NSClassFromString(@"SBFluidSwitcherViewController");
     Class deck = NSClassFromString(@"SBDeckSwitcherViewController");
     Class itemCont = NSClassFromString(@"SBFluidSwitcherItemContainer");
+    Class pageView = NSClassFromString(@"SBAppSwitcherPageView");
     if (fluid) {
         %init(FluidHook);
-        if ([fluid instancesRespondToSelector:@selector(scrollViewDidScroll:)]) { %init(FluidScroll); }
+        if ([fluid instancesRespondToSelector:@selector(scrollViewDidScroll:)]) %init(FluidScroll);
     }
     if (deck && deck != fluid && ![deck isSubclassOfClass:fluid]) {
         %init(DeckHook);
-        if ([deck instancesRespondToSelector:@selector(scrollViewDidScroll:)]) { %init(DeckScroll); }
+        if ([deck instancesRespondToSelector:@selector(scrollViewDidScroll:)]) %init(DeckScroll);
     }
-    if (itemCont) {
-        %init(ItemContainerHook);
-    }
+    if (itemCont) %init(ItemContainerHook);
+    if (pageView) %init(PageViewHook);
 
     dispatch_async(dispatch_get_main_queue(), ^{
         CFNotificationCenterRef dc = CFNotificationCenterGetDarwinNotifyCenter();
