@@ -1,5 +1,10 @@
-# CircleSwitcher v1.4.1 (iOS 14 - 16.3.1 Rootless)
-- **Morph hình tròn thật 100% (`csSetCircleMorph`)**: Biến từng app thành hình tròn phát sáng mượt mà khi vuốt mở đa nhiệm, không còn dạng thẻ chữ nhật dọc bị bóp méo.
-- **Motion Blur động khi vuốt & xoay**: Hiệu ứng làm mờ chuyển động mượt mà khi thu nhỏ app vào vòng tròn hoặc vuốt xoay tốc độ cao, tự động sắc nét `@3x` khi dừng lại.
-- **Tối ưu 60/120Hz không khựng lag**: Khóa slot ổn định, sắp xếp lại z-order chuẩn 3D (`bringSubviewToFront:`), ẩn toàn bộ header/icon/nút Bubble chồng chéo ở đỉnh màn hình.
-- **Đầy đủ Cài đặt (`layout/Library/PreferenceLoader/Preferences/CircleSwitcherPrefs.plist`)**: Hiện sẵn trong Cài đặt iPhone với giao diện xem trước 3D trực quan.
+# CircleSwitcher v1.5.0 (iOS 15 - 16.3.1 Rootless)
+- **Fix lỗi linker GitHub Actions (`___isOSVersionAtLeast`)**: Loại bỏ hoàn toàn `@available(iOS 15.0, *)`, dùng kiểm tra runtime `respondsToSelector:` chuẩn Objective-C và nâng `TARGET` lên `15.0` cho Rootless.
+- **Bộ Asset đồ họa `@3x` (`layout/Library/Application Support/CircleSwitcher/`)**:
+  - `glass_rim@3x.png`: Viền kính phản chiếu Liquid-Glass 3D bao quanh từng vòng tròn ứng dụng.
+  - `orb_halo@3x.png`: Hào quang phát sáng mềm mại tự động đổi màu theo thông số Glow Hue.
+  - `ambient_backdrop@3x.png`: Phông nền chiều sâu 3D khi mở trình đa nhiệm.
+  - `prefs_banner@3x.png`: Banner nghệ thuật cho trang Cài đặt.
+- **Smooth Motion Engine (Vật lý lò xo giảm chấn 120Hz)**:
+  - Bộ giải lò xo `CSSpringStep` chia bước 2ms ổn định ở cả 60Hz và 120Hz ProMotion.
+  - Nghiêng động theo lực vuốt (`Velocity-Coupled Tilt`) và cache `CGPath` giúp giảm tải GPU.

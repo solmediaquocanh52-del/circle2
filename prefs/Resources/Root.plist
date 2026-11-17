@@ -8,9 +8,9 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Motion Blur động: Tự động làm mờ mượt mà khi vuốt thu nhỏ app vào vòng tròn hoặc xoay nhanh, dừng lại lập tức sắc nét @3x.</string>
+			<string>Viền kính Liquid Glass @3x &amp; bộ giải vật lý lò xo 120Hz giúp từng vòng tròn ứng dụng nổi khối và dừng êm tự nhiên.</string>
 			<key>label</key>
-			<string>Chung &amp; Độ mượt hiển thị</string>
+			<string>Chung &amp; Chất lượng hiển thị @3x</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -52,11 +52,27 @@
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
+			<string>glassOverlay</string>
+			<key>label</key>
+			<string>Viền kính phản chiếu 3D (@3x)</string>
+			<key>sfColor</key>
+			<string>#32ADE6</string>
+			<key>sfSymbol</key>
+			<string>sparkles.rectangle.stack.fill</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
 			<string>motionBlurOn</string>
 			<key>label</key>
 			<string>Motion Blur khi vuốt &amp; xoay</string>
 			<key>sfColor</key>
-			<string>#32ADE6</string>
+			<string>#5AC8FA</string>
 			<key>sfSymbol</key>
 			<string>wind</string>
 		</dict>
@@ -117,6 +133,104 @@
 			<string>#00C7BE</string>
 			<key>sfSymbol</key>
 			<string>eye.fill</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Vật lý lò xo &amp; Độ mượt chuyển động</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>100</integer>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>springStiffness</string>
+			<key>label</key>
+			<string>Độ nảy vật lý lò xo (%)</string>
+			<key>max</key>
+			<integer>180</integer>
+			<key>min</key>
+			<integer>50</integer>
+			<key>sfColor</key>
+			<string>#FF2D55</string>
+			<key>sfSymbol</key>
+			<string>waveform.path.ecg</string>
+			<key>showValue</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>velTilt</string>
+			<key>label</key>
+			<string>Nghiêng động theo lực vuốt</string>
+			<key>sfColor</key>
+			<string>#FF9500</string>
+			<key>sfSymbol</key>
+			<string>gyroscope</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>inertia</string>
+			<key>label</key>
+			<string>Quán tính khi vuốt xoay</string>
+			<key>sfColor</key>
+			<string>#007AFF</string>
+			<key>sfSymbol</key>
+			<string>hand.draw.fill</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>openAnim</string>
+			<key>label</key>
+			<string>Hiệu ứng bung vòng khi mở</string>
+			<key>sfColor</key>
+			<string>#AF52DE</string>
+			<key>sfSymbol</key>
+			<string>wand.and.stars</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>default</key>
+			<integer>100</integer>
+			<key>defaults</key>
+			<string>com.vn.circleswitcher</string>
+			<key>key</key>
+			<string>openSpeed</string>
+			<key>label</key>
+			<string>Tốc độ hiệu ứng mở (%)</string>
+			<key>max</key>
+			<integer>250</integer>
+			<key>min</key>
+			<integer>40</integer>
+			<key>sfColor</key>
+			<string>#34C759</string>
+			<key>sfSymbol</key>
+			<string>hare.fill</string>
+			<key>showValue</key>
+			<true/>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -378,13 +492,13 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Hiệu ứng Motion Blur &amp; Phát sáng</string>
+			<string>Hiệu ứng Hào quang &amp; Motion Blur</string>
 		</dict>
 		<dict>
 			<key>cell</key>
 			<string>PSSliderCell</string>
 			<key>default</key>
-			<real>4.5</real>
+			<real>4.2</real>
 			<key>defaults</key>
 			<string>com.vn.circleswitcher</string>
 			<key>key</key>
@@ -434,7 +548,7 @@
 			<key>key</key>
 			<string>ringGlow</string>
 			<key>label</key>
-			<string>Viền vòng phát sáng (Glow)</string>
+			<string>Hào quang phát sáng (Orb Halo)</string>
 			<key>sfColor</key>
 			<string>#FFCC00</string>
 			<key>sfSymbol</key>
@@ -450,7 +564,7 @@
 			<key>key</key>
 			<string>glowHue</string>
 			<key>label</key>
-			<string>Màu phát sáng (Hue)</string>
+			<string>Màu hào quang (Hue)</string>
 			<key>max</key>
 			<integer>360</integer>
 			<key>min</key>
@@ -472,7 +586,7 @@
 			<key>key</key>
 			<string>glowAmt</string>
 			<key>label</key>
-			<string>Cường độ phát sáng (%)</string>
+			<string>Cường độ hào quang (%)</string>
 			<key>max</key>
 			<integer>100</integer>
 			<key>min</key>
@@ -680,23 +794,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>label</key>
-			<string>Cử chỉ, Bong bóng &amp; Chuyển động</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>inertia</string>
-			<key>label</key>
-			<string>Quán tính khi vuốt xoay</string>
-			<key>sfColor</key>
-			<string>#007AFF</string>
-			<key>sfSymbol</key>
-			<string>hand.draw.fill</string>
+			<string>Tương tác &amp; Bong bóng</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -713,44 +811,6 @@
 			<string>#FF2D55</string>
 			<key>sfSymbol</key>
 			<string>iphone.radiowaves.left.and.right</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>openAnim</string>
-			<key>label</key>
-			<string>Hiệu ứng bung vòng khi mở</string>
-			<key>sfColor</key>
-			<string>#AF52DE</string>
-			<key>sfSymbol</key>
-			<string>wand.and.stars</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>default</key>
-			<integer>100</integer>
-			<key>defaults</key>
-			<string>com.vn.circleswitcher</string>
-			<key>key</key>
-			<string>openSpeed</string>
-			<key>label</key>
-			<string>Tốc độ hiệu ứng (%)</string>
-			<key>max</key>
-			<integer>250</integer>
-			<key>min</key>
-			<integer>40</integer>
-			<key>sfColor</key>
-			<string>#34C759</string>
-			<key>sfSymbol</key>
-			<string>hare.fill</string>
-			<key>showValue</key>
-			<true/>
 		</dict>
 		<dict>
 			<key>cell</key>
